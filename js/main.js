@@ -1,7 +1,7 @@
 // =====================================================================
 // CHESS LORD — Contrôleur principal de l'interface du lobby
 // =====================================================================
-import { subscribeAuth, signInWithGoogle, signOutUser } from "./auth.js";
+import { subscribeAuth, signInWithGoogle, signOutUser, uploadProfilePhoto } from "./auth.js";
 import {
   createRoom,
   joinRoomByCode,
@@ -48,6 +48,7 @@ const btnLeaveRoom = document.getElementById("btnLeaveRoom");
 const btnCloseRoom = document.getElementById("btnCloseRoom");
 
 const toastEl = document.getElementById("toast");
+const avatarFileInput = document.getElementById("avatarFileInput");
 
 // ---------------------------------------------------------------
 // Etat local
@@ -134,6 +135,7 @@ function renderAuthArea() {
   const photo = currentProfile?.photoURL || DEFAULT_AVATAR;
   const name = currentProfile?.displayName || "Aventurier";
   const level = currentProfile?.level ?? 1;
+  const pieces = currentProfile?.pieces ?? 0;
 
   authArea.innerHTML = `
     <div class="user-chip-wrap">
@@ -141,10 +143,11 @@ function renderAuthArea() {
         <img src="${escapeAttr(photo)}" alt="${escapeAttr(name)}">
         <span class="user-meta">
           <span class="user-name">${escapeHtml(name)}</span>
-          <span class="user-level">Niveau ${level}</span>
+          <span class="user-level">Niveau ${level} · ${pieces} pièces</span>
         </span>
       </button>
       <div class="user-dropdown" id="userDropdown">
+        <button type="button" id="btnChangeAvatar">Changer l'avatar</button>
         <button type="button" id="btnLogout">Se déconnecter</button>
       </div>
     </div>
@@ -157,6 +160,11 @@ function renderAuthArea() {
     e.stopPropagation();
     dropdown.classList.toggle("open");
   });
+  document.getElementById("btnChangeAvatar").addEventListener("click", (e) => {
+    e.stopPropagation();
+    dropdown.classList.remove("open");
+    avatarFileInput.click();
+  });
   document.getElementById("btnLogout").addEventListener("click", async () => {
     dropdown.classList.remove("open");
     await leaveCurrentRoomIfAny();
@@ -167,6 +175,20 @@ function renderAuthArea() {
   });
   document.addEventListener("click", () => dropdown.classList.remove("open"), { once: true });
 }
+
+avatarFileInput.addEventListener("change", async () => {
+  const file = avatarFileInput.files && avatarFileInput.files[0];
+  avatarFileInput.value = ""; // permet de re-sélectionner le même fichier plus tard
+  if (!file) return;
+  try {
+    showToast("Envoi de l'avatar…");
+    await uploadProfilePhoto(file);
+    showToast("Avatar mis à jour !");
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || "Impossible de changer l'avatar.", "error");
+  }
+});
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({
@@ -333,6 +355,16 @@ function enterRoomView(code, isHost) {
     roomViewCode.textContent = room.id;
     roomViewCount.textContent = room.playerCount;
     roomViewMax.textContent = room.maxPlayers;
+
+    // L'hôte peut changer en cours de route (transfert automatique si
+    // l'hôte précédent a quitté la salle) : on garde l'UI synchronisée.
+    const isNowHost = !!currentUser && room.hostUid === currentUser.uid;
+    if (isNowHost !== currentRoomIsHost) {
+      currentRoomIsHost = isNowHost;
+      btnCloseRoom.style.display = isNowHost ? "inline-flex" : "none";
+      btnLeaveRoom.textContent = isNowHost ? "Quitter (ferme la salle)" : "Quitter la salle";
+      if (isNowHost) showToast("Tu es désormais l'hôte de cette salle.");
+    }
   });
 
   unsubCurrentPlayers = subscribePlayers(code, (players) => {
@@ -342,7 +374,7 @@ function enterRoomView(code, isHost) {
       li.innerHTML = `
         <img src="${escapeAttr(p.photoURL || DEFAULT_AVATAR)}" alt="">
         <span class="p-name">${escapeHtml(p.displayName)}</span>
-        <span class="p-level">Niv. ${p.level ?? 1}</span>
+        <span class="p-level">Niv. ${p.level ?? 1} · ${p.pieces ?? 0} pièces</span>
         ${p.isHost ? '<span class="p-host-tag">Hôte</span>' : ""}
       `;
       playerList.appendChild(li);
@@ -361,10 +393,9 @@ function exitRoomView({ alreadyGone } = {}) {
 btnLeaveRoom.addEventListener("click", async () => {
   if (!currentRoomCode) return;
   const code = currentRoomCode;
-  const isHost = currentRoomIsHost;
   exitRoomView();
   try {
-    await leaveRoom(code, currentUser.uid, isHost);
+    await leaveRoom(code, currentUser.uid);
   } catch (err) {
     console.error(err);
   }
@@ -384,10 +415,9 @@ btnCloseRoom.addEventListener("click", async () => {
 async function leaveCurrentRoomIfAny() {
   if (!currentRoomCode) return;
   const code = currentRoomCode;
-  const isHost = currentRoomIsHost;
   exitRoomView();
   try {
-    await leaveRoom(code, currentUser.uid, isHost);
+    await leaveRoom(code, currentUser.uid);
   } catch (e) {
     /* silencieux */
   }

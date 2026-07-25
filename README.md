@@ -12,9 +12,9 @@ chess-lord/
 ├─ index.html
 ├─ css/style.css
 ├─ js/
-│  ├─ firebase-config.js   ← à compléter avec TES clés Firebase
-│  ├─ auth.js               connexion Google + profil joueur
-│  ├─ rooms.js               créer / rejoindre / lister / fermer une salle
+│  ├─ firebase-config.js   ← à compléter avec TES clés Firebase (Auth + Firestore + Storage)
+│  ├─ auth.js               connexion Google, profil persistant (nom/niveau/pièces/avatar)
+│  ├─ rooms.js               créer / rejoindre / lister / quitter / fermer une salle
 │  └─ main.js                 branchement de l'UI
 └─ assets/logo.png
 ```
@@ -54,10 +54,17 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow create: if request.auth != null
                     && request.resource.data.hostUid == request.auth.uid;
-      // Mise à jour autorisée pour gérer playerCount lors des jointures/départs
+      // Mise à jour autorisée pour gérer playerCount / transfert d'hôte
+      // lors des jointures / départs.
       allow update: if request.auth != null;
+      // Suppression autorisée pour l'hôte, OU pour n'importe quel joueur
+      // authentifié quand il ne reste (au plus) qu'un seul joueur dans la
+      // salle : c'est ce qui permet de fermer automatiquement la salle
+      // quand le dernier joueur la quitte, même s'il n'est pas l'hôte
+      // d'origine.
       allow delete: if request.auth != null
-                    && resource.data.hostUid == request.auth.uid;
+                    && (resource.data.hostUid == request.auth.uid
+                        || resource.data.playerCount <= 1);
 
       match /players/{playerId} {
         allow read: if request.auth != null;
@@ -77,13 +84,36 @@ service cloud.firestore {
    "Rejoindre" (ou crée-le manuellement : champ `status` Ascending +
    `createdAt` Descending).
 
-## 4. Autoriser ton domaine pour la connexion Google
+## 4. Activer Firebase Storage (avatars uploadés)
+
+1. **Build → Storage → Get started**, garde l'emplacement par défaut.
+2. Onglet **Règles**, colle :
+
+```js
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /avatars/{uid}/{fileName} {
+      // Les avatars sont publics en lecture (affichés dans les salles),
+      // mais chaque joueur ne peut écrire QUE dans son propre dossier.
+      allow read: if true;
+      allow write: if request.auth != null
+                   && request.auth.uid == uid
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
+```
+
+## 5. Autoriser ton domaine pour la connexion Google
 
 Dans **Authentication → Settings → Authorized domains**, ajoute le
 domaine sur lequel tu vas héberger le site (Firebase y ajoute déjà
 `localhost` par défaut).
 
-## 5. Lancer le site en local
+## 6. Lancer le site en local
 
 Les modules Firebase (`type="module"`) et la popup Google **ne
 fonctionnent pas** en ouvrant simplement `index.html` avec `file://`.
@@ -111,32 +141,71 @@ firebase serve
   client et utilisé directement comme ID de document.
 - La liste "Rejoindre une partie" écoute en temps réel
   (`onSnapshot`) toutes les salles `status == "waiting"` : une salle
-  apparaît dès sa création et disparaît dès que l'hôte la ferme
-  (le document est supprimé de Firestore).
+  apparaît dès sa création et disparaît dès qu'elle est fermée.
 - Rejoindre par code fait une lecture directe du document
   `rooms/{code}` — pas besoin d'attendre qu'elle apparaisse dans la
   liste.
 - Chaque salle a une sous-collection `players` ; rejoindre/quitter
   passe par une transaction Firestore pour garder `playerCount` exact
   même en cas d'actions simultanées.
+- **Quitter une salle (`leaveRoom`)** retire toujours le joueur de la
+  sous-collection `players` et décrémente `playerCount`. Si le joueur
+  qui part était le **dernier** de la salle, le document `rooms/{code}`
+  est supprimé — la salle est fermée, que ce joueur soit l'hôte
+  d'origine ou non. Si l'hôte quitte et qu'il reste d'autres joueurs,
+  le rôle d'hôte est automatiquement transféré au joueur restant
+  arrivé en premier (`reassignHost`), pour que la salle reste gérable
+  (bouton "Fermer la salle" affiché au bon endroit, etc.).
+- **Se déconnecter (bouton "Se déconnecter")** appelle
+  `leaveCurrentRoomIfAny()` avant `signOutUser()` : le joueur quitte
+  proprement sa salle courante (avec fermeture/transfert d'hôte comme
+  ci-dessus) avant que sa session Firebase ne se termine.
 - Se connecter/rechercher/rejoindre est bloqué tant qu'aucun compte
   Google n'est actif (bouton désactivé côté logique + règles
   Firestore qui exigent `request.auth != null`).
 
 ### Limite connue (v1)
 
-La fermeture "propre" d'une salle quand quelqu'un ferme l'onglet sans
-cliquer sur "Quitter" repose sur l'évènement `beforeunload`, qui
-n'est pas garanti à 100 % (perte réseau, crash, etc.). Pour une
-robustesse totale, l'étape suivante serait d'ajouter une présence via
-**Firebase Realtime Database + `onDisconnect()`** (ou une Cloud
-Function planifiée qui nettoie les salles inactives). Je peux
-l'ajouter quand tu veux passer à cette itération.
+La fermeture d'une salle quand quelqu'un ferme l'onglet ou perd sa
+connexion sans passer par "Quitter" / "Se déconnecter" repose sur
+l'évènement `beforeunload`, qui n'est pas garanti à 100 % (perte
+réseau, crash, etc.). Pour une robustesse totale, l'étape suivante
+serait d'ajouter une présence via **Firebase Realtime Database +
+`onDisconnect()`** (ou une Cloud Function planifiée qui nettoie les
+salles inactives). Je peux l'ajouter quand tu veux passer à cette
+itération.
+
+## Profil joueur persistant
+
+Chaque compte Google est lié à un document `users/{uid}` dans
+Firestore qui stocke 4 informations, conservées d'une connexion à
+l'autre (elles ne sont **jamais** écrasées par les données du compte
+Google au re-login) :
+
+| Champ         | Type       | Origine                                                            |
+| ------------- | ---------- | ------------------------------------------------------------------- |
+| `displayName` | `string`   | Généré aléatoirement (thème médiéval) à la **toute première** connexion |
+| `photoURL`    | `string`   | URL Firebase Storage ; uploadable via "Changer l'avatar"            |
+| `level`       | `int`      | `1` par défaut ; à faire évoluer plus tard via `updatePlayerStats()` |
+| `pieces`      | `int`      | `0` par défaut ; à faire évoluer plus tard via `updatePlayerStats()` |
+
+- La génération du nom (`generateRandomPlayerName()` dans `auth.js`)
+  et l'initialisation du profil se font une seule fois, au premier
+  `setDoc`. Les connexions suivantes ne mettent à jour que
+  `lastLogin`.
+- L'avatar est uploadé via `uploadProfilePhoto(file)` (bouton
+  "Changer l'avatar" dans le menu du joueur) : le fichier est stocké
+  dans Firebase Storage sous `avatars/{uid}/avatar.<ext>`, et l'URL de
+  téléchargement est enregistrée dans `photoURL`. Formats acceptés :
+  PNG / JPG / WEBP / GIF, 5 Mo max.
+- `updatePlayerStats({ level, pieces })` (dans `auth.js`) est prêt à
+  être appelé depuis la future logique de jeu / boutique pour faire
+  évoluer le niveau et les pièces.
 
 ## Prochaines étapes possibles
 
-- Écran de la boutique
+- Écran de la boutique (dépenser/gagner des pièces)
 - Écran de support (formulaire / lien contact)
 - Lancement de partie depuis la salle d'attente (bouton "Démarrer"
   réservé à l'hôte, une fois le gameplay prêt)
-- Avatar personnalisable au moment de la première connexion
+- Présence réseau robuste via Realtime Database + `onDisconnect()`

@@ -28,6 +28,7 @@ import {
   initializeFirestore,
   CACHE_SIZE_UNLIMITED
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getStorage } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
@@ -35,3 +36,5 @@ export const googleProvider = new GoogleAuthProvider();
 export const db = initializeFirestore(app, {
   cacheSizeBytes: CACHE_SIZE_UNLIMITED
 });
+// Stockage des avatars uploadés par les joueurs (voir js/auth.js -> uploadProfilePhoto)
+export const storage = getStorage(app);

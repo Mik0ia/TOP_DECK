@@ -7,6 +7,7 @@ import {
   doc,
   setDoc,
   getDoc,
+  getDocs,
   deleteDoc,
   runTransaction,
   onSnapshot,
@@ -69,6 +70,7 @@ export async function createRoom({ name, maxPlayers }, user, profile) {
     displayName: profile.displayName,
     photoURL: profile.photoURL || "",
     level: profile.level || 1,
+    pieces: profile.pieces || 0,
     isHost: true,
     joinedAt: serverTimestamp()
   });
@@ -113,6 +115,7 @@ export async function joinRoomByCode(rawCode, user, profile) {
       displayName: profile.displayName,
       photoURL: profile.photoURL || "",
       level: profile.level || 1,
+      pieces: profile.pieces || 0,
       isHost: false,
       joinedAt: serverTimestamp()
     });
@@ -123,33 +126,88 @@ export async function joinRoomByCode(rawCode, user, profile) {
 }
 
 /**
- * Quitte une salle. Si le joueur est l'hôte, la salle est fermée
- * pour tout le monde (elle disparaît de la liste).
+ * Quitte une salle.
+ * - Le joueur est toujours retiré de la sous-collection "players".
+ * - Si c'était le DERNIER joueur restant dans la salle, la salle est
+ *   fermée (document supprimé) — peu importe qu'il s'agisse de l'hôte
+ *   ou non.
+ * - Si l'hôte quitte et qu'il reste d'autres joueurs, l'hôte est
+ *   automatiquement transféré à un joueur restant (le plus ancien
+ *   arrivé) pour que la salle reste gérable.
+ *
+ * Retourne { roomClosed: boolean } pour que l'UI sache si la salle a
+ * disparu.
  */
-export async function leaveRoom(code, uid, isHost) {
+export async function leaveRoom(code, uid) {
   const roomRef = doc(db, ROOMS, code);
+  const playerRef = doc(db, ROOMS, code, PLAYERS, uid);
 
-  if (isHost) {
-    await closeRoom(code);
-    return;
+  let roomClosed = false;
+  let hostLeftWithRemainingPlayers = false;
+
+  await runTransaction(db, async (tx) => {
+    const roomSnap = await tx.get(roomRef);
+    if (!roomSnap.exists()) return; // déjà fermée
+    const room = roomSnap.data();
+
+    const playerSnap = await tx.get(playerRef);
+    if (!playerSnap.exists()) return; // déjà parti
+
+    tx.delete(playerRef);
+    const newCount = Math.max(0, (room.playerCount || 1) - 1);
+
+    if (newCount <= 0) {
+      // Dernier joueur : on ferme la salle.
+      tx.delete(roomRef);
+      roomClosed = true;
+    } else {
+      tx.update(roomRef, { playerCount: newCount });
+      hostLeftWithRemainingPlayers = room.hostUid === uid;
+    }
+  });
+
+  if (!roomClosed && hostLeftWithRemainingPlayers) {
+    await reassignHost(code, uid).catch((e) => console.error("Transfert d'hôte impossible :", e));
   }
 
-  const playerRef = doc(db, ROOMS, code, PLAYERS, uid);
+  return { roomClosed };
+}
+
+/**
+ * Transfère le rôle d'hôte au joueur restant arrivé en premier dans
+ * la salle. Appelé automatiquement quand l'hôte quitte sans être le
+ * dernier joueur.
+ */
+async function reassignHost(code, previousHostUid) {
+  const playersRef = collection(db, ROOMS, code, PLAYERS);
+  const q = query(playersRef, orderBy("joinedAt", "asc"), limit(1));
+  const snap = await getDocs(q);
+  if (snap.empty) return;
+
+  const newHostDoc = snap.docs[0];
+  const newHost = newHostDoc.data();
+  if (!newHost || newHost.uid === previousHostUid) return;
+
+  const roomRef = doc(db, ROOMS, code);
+  const newHostPlayerRef = doc(db, ROOMS, code, PLAYERS, newHost.uid);
+
   await runTransaction(db, async (tx) => {
     const roomSnap = await tx.get(roomRef);
     if (!roomSnap.exists()) return;
-    const room = roomSnap.data();
-    tx.delete(playerRef);
-    tx.update(roomRef, { playerCount: Math.max(0, room.playerCount - 1) });
+    tx.update(roomRef, {
+      hostUid: newHost.uid,
+      hostName: newHost.displayName,
+      hostPhoto: newHost.photoURL || ""
+    });
+    tx.update(newHostPlayerRef, { isHost: true });
   });
 }
 
 /**
- * Ferme définitivement une salle (réservé à l'hôte).
- * NB : sans Cloud Functions, on supprime uniquement le document du
- * joueur courant + le document de la salle ; les sous-documents des
- * autres joueurs restants sont nettoyés côté client au moment où
- * chacun d'eux détecte la fermeture (voir subscribeRoom → null).
+ * Ferme définitivement une salle (bouton "Fermer la salle", réservé
+ * à l'hôte dans l'UI). Les sous-documents des joueurs restants sont
+ * nettoyés côté client au moment où chacun détecte la fermeture (voir
+ * subscribeRoom → null).
  */
 export async function closeRoom(code) {
   const roomRef = doc(db, ROOMS, code);
