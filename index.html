@@ -12,24 +12,17 @@
 </head>
 <body>
 
-<!-- Fond décoratif : ciel nocturne, collines & forêt -->
+<!-- Fond décoratif : image de forêt fournie, + brumes/braises animées par-dessus -->
 <div class="scene" aria-hidden="true">
-  <div class="sky"></div>
-  <div class="stars"></div>
+  <div class="scene-bg"></div>
+  <div class="scene-veil"></div>
   <div class="mist mist-1"></div>
   <div class="mist mist-2"></div>
-  <div class="hills hills-back"></div>
-  <div class="hills hills-front"></div>
   <div class="embers" id="embers"></div>
 </div>
 
 <!-- ===================== HEADER ===================== -->
 <header class="topbar">
-  <div class="brand">
-    <img src="assets/logo.png" alt="Chess Lord" class="brand-crest">
-    <span class="brand-name">Chess&nbsp;Lord</span>
-  </div>
-
   <div class="auth-area" id="authArea">
     <!-- Rempli dynamiquement par js/main.js -->
     <button class="btn btn-gold btn-sm" id="btnGoogleLogin">
@@ -46,48 +39,52 @@
 
 <!-- ===================== MAIN LOBBY ===================== -->
 <main class="lobby">
-  <div class="lobby-hero">
+
+  <div class="lobby-left">
+    <img src="assets/logo.png" alt="Chess Lord" class="lobby-logo">
+  </div>
+
+  <div class="lobby-right">
     <p class="eyebrow">Bienvenue, prétendant au trône</p>
-    <h1 class="hero-title">Rassemble tes forces.<br>Conquiers l'échiquier.</h1>
 
-    <div class="action-cards">
-      <button class="action-card action-card--gold" id="btnOpenCreate">
-        <span class="action-card-icon">
-          <svg viewBox="0 0 64 64" width="34" height="34" fill="none">
-            <path d="M32 6l4 10h11l-8.5 7 3.5 11-10-6.5L22 34l3.5-11L17 16h11z" fill="currentColor"/>
-            <rect x="18" y="46" width="28" height="10" rx="2" fill="currentColor"/>
-            <rect x="14" y="56" width="36" height="4" rx="1.5" fill="currentColor"/>
-          </svg>
-        </span>
-        <span class="action-card-title">Créer une partie</span>
-        <span class="action-card-sub">Fonde ta propre salle et invite des rivaux</span>
-      </button>
+    <button class="menu-btn menu-btn--gold" id="btnOpenCreate">
+      <span class="menu-btn-icon">
+        <svg viewBox="0 0 64 64" width="26" height="26" fill="none">
+          <path d="M32 6l4 10h11l-8.5 7 3.5 11-10-6.5L22 34l3.5-11L17 16h11z" fill="currentColor"/>
+          <rect x="18" y="46" width="28" height="10" rx="2" fill="currentColor"/>
+          <rect x="14" y="56" width="36" height="4" rx="1.5" fill="currentColor"/>
+        </svg>
+      </span>
+      <span class="menu-btn-label">Créer une partie</span>
+    </button>
 
-      <button class="action-card action-card--green" id="btnOpenJoin">
-        <span class="action-card-icon">
-          <svg viewBox="0 0 64 64" width="34" height="34" fill="none">
-            <circle cx="24" cy="32" r="14" fill="none" stroke="currentColor" stroke-width="4"/>
-            <path d="M38 32h18M50 24l8 8-8 8" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-          </svg>
-        </span>
-        <span class="action-card-title">Rejoindre une partie</span>
-        <span class="action-card-sub">Entre un code ou choisis une salle ouverte</span>
-      </button>
-    </div>
+    <button class="menu-btn menu-btn--green" id="btnOpenJoin">
+      <span class="menu-btn-icon">
+        <svg viewBox="0 0 64 64" width="26" height="26" fill="none">
+          <circle cx="24" cy="32" r="14" fill="none" stroke="currentColor" stroke-width="4"/>
+          <path d="M38 32h18M50 24l8 8-8 8" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+      </span>
+      <span class="menu-btn-label">Rejoindre une partie</span>
+    </button>
 
-    <div class="secondary-actions">
-      <button class="btn btn-ghost" id="btnShop">
-        <svg class="icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1.5-5h15L21 9M3 9h18M3 9v10a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V9M8 13a3 3 0 0 0 6 0"/></svg>
-        Boutique
-      </button>
-      <button class="btn btn-ghost" id="btnSupport">
-        <svg class="icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4.5 8-11V5l-8-3-8 3v6c0 6.5 8 11 8 11z"/><path d="M9.5 12.5l1.8 1.8L15 10.5"/></svg>
-        Support
-      </button>
-    </div>
+    <button class="menu-btn menu-btn--outline" id="btnShop">
+      <span class="menu-btn-icon">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1.5-5h15L21 9M3 9h18M3 9v10a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V9M8 13a3 3 0 0 0 6 0"/></svg>
+      </span>
+      <span class="menu-btn-label">Boutique</span>
+    </button>
+
+    <button class="menu-btn menu-btn--ghost" id="btnSupport">
+      <span class="menu-btn-icon">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4.5 8-11V5l-8-3-8 3v6c0 6.5 8 11 8 11z"/><path d="M9.5 12.5l1.8 1.8L15 10.5"/></svg>
+      </span>
+      <span class="menu-btn-label">Support</span>
+    </button>
 
     <p class="hint-guest" id="hintGuest">Connecte-toi pour créer ou rejoindre une salle.</p>
   </div>
+
 </main>
 
 <!-- ===================== MODALE : CRÉER UNE PARTIE ===================== -->
@@ -109,7 +106,6 @@
     </select>
 
     <p class="modal-error" id="createError"></p>
-
     <button class="btn btn-gold btn-block" id="btnConfirmCreate">Créer la salle</button>
   </div>
 </div>
@@ -124,7 +120,6 @@
       <input type="text" id="joinCodeInput" class="field-input field-code" placeholder="CODE DE LA SALLE" maxlength="6" autocomplete="off">
       <button class="btn btn-green" id="btnJoinByCode">Rejoindre</button>
     </div>
-
     <p class="modal-error" id="joinError"></p>
 
     <div class="divider"><span>ou choisis une salle ouverte</span></div>
@@ -139,6 +134,7 @@
 <div class="modal-overlay" id="modalRoom">
   <div class="modal modal-parchment modal-wide">
     <h2 class="modal-title">Salle d'attente</h2>
+
     <div class="room-header">
       <div>
         <p class="room-name" id="roomViewName">—</p>

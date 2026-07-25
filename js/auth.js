@@ -21,12 +21,18 @@ import {
 
 /**
  * Etat courant, mis à jour à chaque changement d'auth.
- * profile = { displayName, photoURL, level, pieces, createdAt }
+ * profile = { displayName, photoURL, level, exp, pieces, createdAt }
  *
- * displayName et photoURL sont désormais des données PROPRES à Chess Lord :
+ * displayName et photoURL sont des données PROPRES à Chess Lord :
  * générées / initialisées une seule fois à la toute première connexion,
  * puis conservées telles quelles d'une session à l'autre (elles ne sont
  * plus jamais écrasées par le profil Google au re-login).
+ *
+ * Système de niveau : chaque niveau N nécessite N * 10 points
+ * d'expérience pour passer au niveau N+1 (niveau 1 -> 10 xp,
+ * niveau 60 -> 600 xp, etc). "exp" représente la progression EN COURS
+ * vers le niveau suivant (remise à 0 — avec le surplus reporté — à
+ * chaque passage de niveau), pas un total cumulé depuis le début.
  */
 export const authState = {
   user: null,
@@ -48,6 +54,23 @@ export function subscribeAuth(callback) {
   listeners.add(callback);
   callback(authState.user, authState.profile);
   return () => listeners.delete(callback);
+}
+
+// -----------------------------------------------------------------
+// Système d'expérience / niveau
+// -----------------------------------------------------------------
+/** XP nécessaire pour passer du niveau `level` au niveau `level + 1`. */
+export function xpForLevel(level) {
+  const lvl = Number.isFinite(level) && level > 0 ? Math.trunc(level) : 1;
+  return lvl * 10;
+}
+
+/** Pourcentage de remplissage (0-100) de la barre d'XP courante. */
+export function xpProgressPercent(level, exp) {
+  const needed = xpForLevel(level);
+  const current = Number.isFinite(exp) ? Math.max(0, exp) : 0;
+  if (needed <= 0) return 0;
+  return Math.max(0, Math.min(100, (current / needed) * 100));
 }
 
 // -----------------------------------------------------------------
@@ -73,10 +96,12 @@ function generateRandomPlayerName() {
 
 /**
  * Récupère (ou crée si elle n'existe pas encore) la fiche du joueur
- * dans la collection Firestore "users". Les 4 informations persistées :
+ * dans la collection Firestore "users". Les infos persistées :
  *  - level (int)
+ *  - exp (int)     -> progression vers le niveau suivant
  *  - pieces (int)
- *  - displayName (texte, généré aléatoirement à la 1ère connexion)
+ *  - displayName (texte, généré aléatoirement à la 1ère connexion,
+ *    modifiable ensuite depuis le lobby)
  *  - photoURL (fichier stocké dans Firebase Storage, uploadable)
  */
 async function ensureUserProfile(user) {
@@ -93,6 +118,7 @@ async function ensureUserProfile(user) {
       displayName: data.displayName || generateRandomPlayerName(),
       photoURL: data.photoURL || "",
       level: Number.isFinite(data.level) ? data.level : 1,
+      exp: Number.isFinite(data.exp) ? data.exp : 0,
       pieces: Number.isFinite(data.pieces) ? data.pieces : 0,
       createdAt: data.createdAt
     };
@@ -103,6 +129,7 @@ async function ensureUserProfile(user) {
     displayName: generateRandomPlayerName(),
     photoURL: user.photoURL || "", // valeur de départ = photo Google, modifiable ensuite
     level: 1,
+    exp: 0,
     pieces: 0,
     createdAt: serverTimestamp(),
     lastLogin: serverTimestamp()
@@ -118,6 +145,24 @@ export async function signInWithGoogle() {
 
 export async function signOutUser() {
   await signOut(auth);
+}
+
+// -----------------------------------------------------------------
+// Changement du pseudo (possible à tout moment depuis le lobby).
+// -----------------------------------------------------------------
+const NAME_MIN_LEN = 3;
+const NAME_MAX_LEN = 24;
+
+export async function updateDisplayName(rawName) {
+  if (!authState.user) throw new Error("Il faut être connecté pour changer de pseudo.");
+  const name = (rawName || "").trim().replace(/\s+/g, " ");
+  if (name.length < NAME_MIN_LEN) throw new Error(`Le pseudo doit faire au moins ${NAME_MIN_LEN} caractères.`);
+  if (name.length > NAME_MAX_LEN) throw new Error(`Le pseudo doit faire au plus ${NAME_MAX_LEN} caractères.`);
+
+  await setDoc(doc(db, "users", authState.user.uid), { displayName: name }, { merge: true });
+  authState.profile = { ...authState.profile, displayName: name };
+  notify();
+  return name;
 }
 
 // -----------------------------------------------------------------
@@ -153,19 +198,49 @@ export async function uploadProfilePhoto(file) {
 }
 
 // -----------------------------------------------------------------
-// Mise à jour des stats persistées (niveau / pièces). Prêt à être
-// appelé plus tard depuis la logique de jeu / la boutique.
+// Mise à jour des stats persistées (niveau / xp / pièces). Prêt à
+// être appelé plus tard depuis la logique de jeu / la boutique.
 // -----------------------------------------------------------------
 export async function updatePlayerStats(patch = {}) {
   if (!authState.user) return;
   const allowed = {};
   if (Number.isFinite(patch.level)) allowed.level = Math.trunc(patch.level);
+  if (Number.isFinite(patch.exp)) allowed.exp = Math.trunc(patch.exp);
   if (Number.isFinite(patch.pieces)) allowed.pieces = Math.trunc(patch.pieces);
   if (!Object.keys(allowed).length) return;
 
   await setDoc(doc(db, "users", authState.user.uid), allowed, { merge: true });
   authState.profile = { ...authState.profile, ...allowed };
   notify();
+}
+
+/**
+ * Ajoute de l'expérience au joueur courant, en gérant les passages de
+ * niveau en cascade (au cas où le gain d'XP dépasse un seul niveau).
+ * Exemple : niveau 1 avec 8 xp + 15 xp gagnés -> niveau 2 avec 3 xp
+ * restants (8 + 15 = 23, il fallait 10 pour passer niveau 1 -> 2, donc
+ * 13 restants ; niveau 2 demande 20, donc on reste niveau 2 à 13 xp).
+ */
+export async function addExperience(amount) {
+  if (!authState.user || !authState.profile) return;
+  const gained = Number.isFinite(amount) ? Math.trunc(amount) : 0;
+  if (gained === 0) return;
+
+  let level = Number.isFinite(authState.profile.level) ? authState.profile.level : 1;
+  let exp = Number.isFinite(authState.profile.exp) ? authState.profile.exp : 0;
+  exp += gained;
+
+  // Cascade de passages de niveau (protégée contre une boucle infinie
+  // si jamais gained est négatif ou aberrant).
+  let guard = 0;
+  while (exp >= xpForLevel(level) && guard < 1000) {
+    exp -= xpForLevel(level);
+    level += 1;
+    guard++;
+  }
+  if (exp < 0) exp = 0; // sécurité si amount négatif fait descendre sous 0
+
+  await updatePlayerStats({ level, exp });
 }
 
 // -----------------------------------------------------------------
@@ -188,6 +263,7 @@ onAuthStateChanged(auth, async (user) => {
       displayName: user.displayName || "Aventurier",
       photoURL: user.photoURL || "",
       level: 1,
+      exp: 0,
       pieces: 0
     };
   }

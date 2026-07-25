@@ -9,6 +9,7 @@ import {
   getDoc,
   getDocs,
   deleteDoc,
+  writeBatch,
   runTransaction,
   onSnapshot,
   query,
@@ -166,11 +167,37 @@ export async function leaveRoom(code, uid) {
     }
   });
 
-  if (!roomClosed && hostLeftWithRemainingPlayers) {
+  if (roomClosed) {
+    // Filet de sécurité : s'assure qu'aucun document "players" ne reste
+    // orphelin dans Firestore après la fermeture de la salle (le
+    // playerCount devrait déjà être à 0, mais on nettoie quand même
+    // pour éviter toute fuite de mémoire côté base si jamais il restait
+    // un document désynchronisé).
+    await deletePlayersSubcollection(code).catch((e) =>
+      console.error("Nettoyage des joueurs de la salle impossible :", e)
+    );
+  } else if (hostLeftWithRemainingPlayers) {
     await reassignHost(code, uid).catch((e) => console.error("Transfert d'hôte impossible :", e));
   }
 
   return { roomClosed };
+}
+
+/**
+ * Supprime tous les documents de la sous-collection "players" d'une
+ * salle. Firestore ne supprime PAS automatiquement les sous-collections
+ * quand on supprime le document parent : sans ce nettoyage, ces
+ * documents resteraient orphelins indéfiniment et finiraient par
+ * saturer la base au fil des parties.
+ */
+async function deletePlayersSubcollection(code) {
+  const playersRef = collection(db, ROOMS, code, PLAYERS);
+  const snap = await getDocs(playersRef);
+  if (snap.empty) return;
+
+  const batch = writeBatch(db);
+  snap.docs.forEach((d) => batch.delete(d.ref));
+  await batch.commit();
 }
 
 /**
@@ -205,11 +232,15 @@ async function reassignHost(code, previousHostUid) {
 
 /**
  * Ferme définitivement une salle (bouton "Fermer la salle", réservé
- * à l'hôte dans l'UI). Les sous-documents des joueurs restants sont
- * nettoyés côté client au moment où chacun détecte la fermeture (voir
- * subscribeRoom → null).
+ * à l'hôte dans l'UI). Supprime aussi TOUS les documents de la
+ * sous-collection "players" restants avant de supprimer la salle
+ * elle-même : Firestore ne fait pas ce nettoyage automatiquement, donc
+ * sans cette étape les fiches des joueurs qui étaient encore dans la
+ * salle resteraient orphelines dans la base et finiraient par
+ * l'alourdir inutilement partie après partie.
  */
 export async function closeRoom(code) {
+  await deletePlayersSubcollection(code);
   const roomRef = doc(db, ROOMS, code);
   await deleteDoc(roomRef);
 }

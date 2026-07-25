@@ -1,7 +1,15 @@
 // =====================================================================
 // CHESS LORD — Contrôleur principal de l'interface du lobby
 // =====================================================================
-import { subscribeAuth, signInWithGoogle, signOutUser, uploadProfilePhoto } from "./auth.js";
+import {
+  subscribeAuth,
+  signInWithGoogle,
+  signOutUser,
+  uploadProfilePhoto,
+  updateDisplayName,
+  xpForLevel,
+  xpProgressPercent
+} from "./auth.js";
 import {
   createRoom,
   joinRoomByCode,
@@ -124,6 +132,9 @@ function friendlyAuthError(err) {
   return "réessaie dans un instant.";
 }
 
+// ---------------------------------------------------------------
+// Zone compte (haut à droite) : barre d'XP, avatar, pseudo éditable
+// ---------------------------------------------------------------
 function renderAuthArea() {
   if (!currentUser) {
     authArea.innerHTML = "";
@@ -135,17 +146,30 @@ function renderAuthArea() {
   const photo = currentProfile?.photoURL || DEFAULT_AVATAR;
   const name = currentProfile?.displayName || "Aventurier";
   const level = currentProfile?.level ?? 1;
-  const pieces = currentProfile?.pieces ?? 0;
+  const exp = currentProfile?.exp ?? 0;
+  const needed = xpForLevel(level);
+  const pct = xpProgressPercent(level, exp);
 
   authArea.innerHTML = `
-    <div class="user-chip-wrap">
-      <button class="user-chip" id="userChipBtn" type="button">
-        <img src="${escapeAttr(photo)}" alt="${escapeAttr(name)}">
-        <span class="user-meta">
-          <span class="user-name">${escapeHtml(name)}</span>
-          <span class="user-level">Niveau ${level} · ${pieces} pièces</span>
-        </span>
-      </button>
+    <div class="player-hud" id="playerHud">
+      <div class="player-hud-col">
+        <div class="xp-block">
+          <div class="xp-track"><div class="xp-fill" style="width:${pct}%"></div></div>
+          <span class="xp-caption"><b>Niveau ${level}</b> · ${exp}/${needed} xp</span>
+        </div>
+        <div class="user-name-row">
+          <span class="user-name-display" id="userNameDisplay">${escapeHtml(name)}</span>
+          <button type="button" class="user-name-edit-btn" id="btnEditName" title="Changer de pseudo">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="avatar-badge-wrap" id="avatarBadgeWrap">
+        <img class="avatar-badge-img" src="${escapeAttr(photo)}" alt="${escapeAttr(name)}">
+        <span class="avatar-level-badge">${level}</span>
+      </div>
       <div class="user-dropdown" id="userDropdown">
         <button type="button" id="btnChangeAvatar">Changer l'avatar</button>
         <button type="button" id="btnLogout">Se déconnecter</button>
@@ -154,9 +178,9 @@ function renderAuthArea() {
   `;
   hintGuest.style.display = "none";
 
-  const chipBtn = document.getElementById("userChipBtn");
+  const avatarWrap = document.getElementById("avatarBadgeWrap");
   const dropdown = document.getElementById("userDropdown");
-  chipBtn.addEventListener("click", (e) => {
+  avatarWrap.addEventListener("click", (e) => {
     e.stopPropagation();
     dropdown.classList.toggle("open");
   });
@@ -174,6 +198,58 @@ function renderAuthArea() {
     closeModal(modalRoom);
   });
   document.addEventListener("click", () => dropdown.classList.remove("open"), { once: true });
+
+  // ---- Edition du pseudo, directement dans le lobby ----
+  const btnEditName = document.getElementById("btnEditName");
+  btnEditName.addEventListener("click", (e) => {
+    e.stopPropagation();
+    startEditName(name);
+  });
+}
+
+function startEditName(currentName) {
+  const row = document.getElementById("userNameDisplay")?.parentElement;
+  if (!row) return;
+  row.innerHTML = "";
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "user-name-input";
+  input.maxLength = 24;
+  input.value = currentName;
+  row.appendChild(input);
+  input.focus();
+  input.select();
+
+  let settled = false;
+  const commit = async () => {
+    if (settled) return;
+    settled = true;
+    const newName = input.value;
+    if (newName.trim() === currentName.trim()) {
+      renderAuthArea();
+      return;
+    }
+    try {
+      await updateDisplayName(newName);
+      showToast("Pseudo mis à jour !");
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || "Impossible de changer le pseudo.", "error");
+      renderAuthArea();
+    }
+  };
+  const cancel = () => {
+    if (settled) return;
+    settled = true;
+    renderAuthArea();
+  };
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+    if (e.key === "Escape") { e.preventDefault(); cancel(); }
+  });
+  input.addEventListener("blur", commit, { once: true });
 }
 
 avatarFileInput.addEventListener("change", async () => {
