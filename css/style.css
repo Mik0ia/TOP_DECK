@@ -811,10 +811,139 @@ select.field-input { cursor: pointer; }
 }
 
 /* =========================================================
+   PIÈCES — badge affiché dans le HUD joueur (barre du haut)
+   ========================================================= */
+.pieces-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-end;
+  background: rgba(6,20,60,.35);
+  border: 2px solid var(--yellow-deep);
+  border-radius: 999px;
+  padding: 3px 10px 3px 6px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.3);
+}
+.pieces-badge-coin {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, var(--yellow-light), var(--yellow) 55%, var(--yellow-deep) 100%);
+  border: 1.5px solid rgba(28,11,86,.5);
+  flex-shrink: 0;
+}
+.pieces-badge-count {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--yellow);
+  text-shadow: 0 1px 2px rgba(0,0,0,.4);
+}
+
+/* =========================================================
+   BOUTIQUE
+   ========================================================= */
+.shop-balance {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--blue-deep);
+  font-weight: 800;
+  font-size: 13.5px;
+  margin-bottom: 22px;
+}
+.shop-balance-coin {
+  display: inline-flex;
+  color: var(--yellow-deep);
+}
+
+.shop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 16px;
+}
+
+.shop-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  border: 3px solid var(--outline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-comic);
+  overflow: hidden;
+  transition: transform .13s ease, box-shadow .13s ease;
+}
+.shop-card:hover { transform: translateY(-3px); box-shadow: 7px 8px 0 rgba(11,10,40,.3); }
+
+.shop-card-img-wrap {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  background: var(--blue-pale);
+  overflow: hidden;
+}
+.shop-card-img-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.shop-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  flex: 1;
+}
+.shop-card-name {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 18px;
+  color: var(--blue-deep);
+  letter-spacing: .02em;
+  margin: 0;
+}
+.shop-card-tagline {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-navy-dim);
+  margin: 0 0 4px;
+  line-height: 1.35;
+  flex: 1;
+}
+.shop-card-price {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--yellow-deep);
+}
+.shop-card-price .pieces-badge-coin {
+  border-color: rgba(28,11,86,.35);
+}
+.shop-card .btn {
+  margin-top: 4px;
+  width: 100%;
+}
+.shop-card-owned {
+  display: block;
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--blue-deep);
+  background: var(--blue-pale);
+  border-radius: 999px;
+  padding: 9px;
+  margin-top: 4px;
+}
+
+/* =========================================================
    MISC
    ========================================================= */
 @media (max-width: 480px) {
   .modal { padding: 24px 18px 20px; }
   .room-header { flex-direction: column; align-items: flex-start; }
   .room-code-box { align-items: flex-start; width: 100%; }
+  .shop-grid { grid-template-columns: repeat(2, 1fr); }
 }

@@ -7,6 +7,7 @@ import {
   signOutUser,
   uploadProfilePhoto,
   updateDisplayName,
+  purchaseDeck,
   xpForLevel,
   xpProgressPercent
 } from "./auth.js";
@@ -20,6 +21,7 @@ import {
   subscribeRoom,
   subscribePlayers
 } from "./rooms.js";
+import { DECK_CATALOG } from "./decks.js";
 
 // ---------------------------------------------------------------
 // Références DOM
@@ -45,6 +47,10 @@ const btnJoinByCode = document.getElementById("btnJoinByCode");
 const joinError = document.getElementById("joinError");
 const roomList = document.getElementById("roomList");
 const roomListEmpty = document.getElementById("roomListEmpty");
+
+const modalShop = document.getElementById("modalShop");
+const shopGrid = document.getElementById("shopGrid");
+const shopBalance = document.getElementById("shopBalance");
 
 const modalRoom = document.getElementById("modalRoom");
 const roomViewName = document.getElementById("roomViewName");
@@ -101,7 +107,7 @@ function closeModal(el) {
 document.querySelectorAll("[data-close]").forEach((btn) => {
   btn.addEventListener("click", () => closeModal(document.getElementById(btn.dataset.close)));
 });
-[modalCreate, modalJoin].forEach((overlay) => {
+[modalCreate, modalJoin, modalShop].forEach((overlay) => {
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) closeModal(overlay);
   });
@@ -147,12 +153,17 @@ function renderAuthArea() {
   const name = currentProfile?.displayName || "Joueur";
   const level = currentProfile?.level ?? 1;
   const exp = currentProfile?.exp ?? 0;
+  const pieces = currentProfile?.pieces ?? 0;
   const needed = xpForLevel(level);
   const pct = xpProgressPercent(level, exp);
 
   authArea.innerHTML = `
     <div class="player-hud" id="playerHud">
       <div class="player-hud-col">
+        <span class="pieces-badge" title="Tes pièces">
+          <span class="pieces-badge-coin" aria-hidden="true"></span>
+          <span class="pieces-badge-count" id="piecesCount">${pieces}</span>
+        </span>
         <div class="xp-block">
           <div class="xp-track"><div class="xp-fill" style="width:${pct}%"></div></div>
           <span class="xp-caption"><b>Niveau ${level}</b> · ${exp}/${needed} xp</span>
@@ -303,8 +314,71 @@ btnOpenJoin.addEventListener("click", () => {
 });
 
 btnShop.addEventListener("click", () => {
-  showToast("La boutique arrive bientôt \u2014 reviens vite !");
+  if (!requireAuth()) return;
+  renderShop();
+  openModal(modalShop);
 });
+
+// ---------------------------------------------------------------
+// Boutique : rendu des decks + achat
+// ---------------------------------------------------------------
+function renderShop() {
+  const pieces = currentProfile?.pieces ?? 0;
+  const ownedDecks = currentProfile?.decks ?? [];
+  shopBalance.textContent = pieces;
+
+  shopGrid.innerHTML = "";
+  DECK_CATALOG.forEach((deck) => {
+    const owned = ownedDecks.includes(deck.id);
+    const canAfford = pieces >= deck.cost;
+
+    const card = document.createElement("div");
+    card.className = "shop-card";
+    card.innerHTML = `
+      <div class="shop-card-img-wrap">
+        <img src="${escapeAttr(deck.image)}" alt="${escapeAttr(deck.name)}">
+      </div>
+      <div class="shop-card-body">
+        <p class="shop-card-name">${escapeHtml(deck.name)}</p>
+        <p class="shop-card-tagline">${escapeHtml(deck.tagline || "")}</p>
+        <span class="shop-card-price">
+          <span class="pieces-badge-coin" aria-hidden="true"></span>
+          ${deck.cost} pièces
+        </span>
+        ${
+          owned
+            ? `<span class="shop-card-owned">Possédé</span>`
+            : `<button type="button" class="btn btn-gold btn-sm" data-deck-id="${escapeAttr(deck.id)}" ${canAfford ? "" : "disabled"}>
+                 ${canAfford ? "Acheter" : "Pas assez de pièces"}
+               </button>`
+        }
+      </div>
+    `;
+
+    if (!owned) {
+      const btn = card.querySelector("button[data-deck-id]");
+      btn.addEventListener("click", () => buyDeck(deck, btn));
+    }
+
+    shopGrid.appendChild(card);
+  });
+}
+
+async function buyDeck(deck, btnEl) {
+  btnEl.disabled = true;
+  const originalLabel = btnEl.textContent;
+  btnEl.textContent = "Achat…";
+  try {
+    await purchaseDeck(deck.id, deck.cost);
+    showToast(`${deck.name} débloqué !`, "success");
+    renderShop(); // rafraîchit la grille (deck désormais "Possédé")
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || "Achat impossible.", "error");
+    btnEl.disabled = false;
+    btnEl.textContent = originalLabel;
+  }
+}
 btnSupport.addEventListener("click", () => {
   showToast("Le support n'est pas encore disponible.");
 });

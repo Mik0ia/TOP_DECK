@@ -11,6 +11,7 @@ import {
   doc,
   getDoc,
   setDoc,
+  runTransaction,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
@@ -21,7 +22,11 @@ import {
 
 /**
  * Etat courant, mis à jour à chaque changement d'auth.
- * profile = { displayName, photoURL, level, exp, pieces, createdAt }
+ * profile = { displayName, photoURL, level, exp, pieces, decks, createdAt }
+ *
+ * "decks" est un tableau d'identifiants de decks possédés (ex :
+ * ["deck-fleur", "deck-golem"], voir js/decks.js pour le catalogue).
+ * Vide par défaut : le joueur doit passer par la boutique.
  *
  * displayName et photoURL sont des données PROPRES à Chess Lord :
  * générées / initialisées une seule fois à la toute première connexion,
@@ -100,6 +105,7 @@ function generateRandomPlayerName() {
  *  - level (int)
  *  - exp (int)     -> progression vers le niveau suivant
  *  - pieces (int)
+ *  - decks (tableau de strings) -> identifiants des decks possédés
  *  - displayName (texte, généré aléatoirement à la 1ère connexion,
  *    modifiable ensuite depuis le lobby)
  *  - photoURL (fichier stocké dans Firebase Storage, uploadable)
@@ -120,6 +126,7 @@ async function ensureUserProfile(user) {
       level: Number.isFinite(data.level) ? data.level : 1,
       exp: Number.isFinite(data.exp) ? data.exp : 0,
       pieces: Number.isFinite(data.pieces) ? data.pieces : 0,
+      decks: Array.isArray(data.decks) ? data.decks : [],
       createdAt: data.createdAt
     };
   }
@@ -131,6 +138,7 @@ async function ensureUserProfile(user) {
     level: 1,
     exp: 0,
     pieces: 0,
+    decks: [],
     createdAt: serverTimestamp(),
     lastLogin: serverTimestamp()
   };
@@ -214,6 +222,46 @@ export async function updatePlayerStats(patch = {}) {
   notify();
 }
 
+// -----------------------------------------------------------------
+// Boutique : achat d'un deck de départ.
+// -----------------------------------------------------------------
+// Utilise une transaction Firestore pour éviter tout souci de
+// concurrence (double-clic, deux onglets ouverts...) : la lecture du
+// solde de pièces et l'écriture (pièces - coût, deck ajouté) se font
+// de façon atomique, avec relecture de la vérité serveur à chaque
+// tentative, plutôt que de se fier à l'état local potentiellement
+// périmé (`authState.profile`).
+export async function purchaseDeck(deckId, cost) {
+  if (!authState.user) throw new Error("Il faut être connecté pour acheter un deck.");
+  if (!deckId) throw new Error("Deck invalide.");
+  const price = Number.isFinite(cost) ? Math.trunc(cost) : 0;
+
+  const ref = doc(db, "users", authState.user.uid);
+  const result = await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new Error("Profil introuvable.");
+    const data = snap.data();
+    const pieces = Number.isFinite(data.pieces) ? data.pieces : 0;
+    const decks = Array.isArray(data.decks) ? data.decks : [];
+
+    if (decks.includes(deckId)) {
+      throw new Error("Tu possèdes déjà ce deck.");
+    }
+    if (pieces < price) {
+      throw new Error("Pas assez de pièces pour acheter ce deck.");
+    }
+
+    const newPieces = pieces - price;
+    const newDecks = [...decks, deckId];
+    tx.update(ref, { pieces: newPieces, decks: newDecks });
+    return { pieces: newPieces, decks: newDecks };
+  });
+
+  authState.profile = { ...authState.profile, ...result };
+  notify();
+  return result;
+}
+
 /**
  * Ajoute de l'expérience au joueur courant, en gérant les passages de
  * niveau en cascade (au cas où le gain d'XP dépasse un seul niveau).
@@ -264,7 +312,8 @@ onAuthStateChanged(auth, async (user) => {
       photoURL: user.photoURL || "",
       level: 1,
       exp: 0,
-      pieces: 0
+      pieces: 0,
+      decks: []
     };
   }
   notify();
