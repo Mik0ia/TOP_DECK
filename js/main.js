@@ -144,7 +144,7 @@ function renderAuthArea() {
   }
 
   const photo = currentProfile?.photoURL || DEFAULT_AVATAR;
-  const name = currentProfile?.displayName || "Aventurier";
+  const name = currentProfile?.displayName || "Joueur";
   const level = currentProfile?.level ?? 1;
   const exp = currentProfile?.exp ?? 0;
   const needed = xpForLevel(level);
@@ -303,7 +303,7 @@ btnOpenJoin.addEventListener("click", () => {
 });
 
 btnShop.addEventListener("click", () => {
-  showToast("La boutique arrive bientôt \u2014 reviens plus tard, seigneur.");
+  showToast("La boutique arrive bientôt \u2014 reviens vite !");
 });
 btnSupport.addEventListener("click", () => {
   showToast("Le support n'est pas encore disponible.");

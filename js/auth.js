@@ -79,12 +79,12 @@ export function xpProgressPercent(level, exp) {
 // la toute première connexion d'un compte Google.
 // -----------------------------------------------------------------
 const NAME_TITLES = [
-  "Chevalier", "Baron", "Duc", "Seigneur", "Comte", "Écuyer",
-  "Gardien", "Champion", "Maître", "Capitaine"
+  "As", "Roi", "Dame", "Valet", "Joker", "Champion",
+  "Maître", "Bluffeur", "Croupier", "Vainqueur"
 ];
 const NAME_SUFFIXES = [
-  "duFeu", "desOmbres", "dOr", "duNord", "desAbysses", "duCorbeau",
-  "duGivre", "desBrumes", "duChêne", "desÉtoiles", "duGouffre", "deFer"
+  "duPique", "duCoeur", "duTrèfle", "duCarreau", "Chanceux",
+  "Éclair", "duJackpot", "Doré", "Fulgurant", "Invaincu", "duCombo", "Malin"
 ];
 
 function generateRandomPlayerName() {
@@ -260,7 +260,7 @@ onAuthStateChanged(auth, async (user) => {
   } catch (err) {
     console.error("Erreur lors du chargement du profil :", err);
     authState.profile = {
-      displayName: user.displayName || "Aventurier",
+      displayName: user.displayName || "Joueur",
       photoURL: user.photoURL || "",
       level: 1,
       exp: 0,
