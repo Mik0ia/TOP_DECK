@@ -448,10 +448,9 @@ function renderShop() {
     card.querySelectorAll('[data-role="open-detail"]').forEach((el) => {
       el.addEventListener("click", () => openDeckDetail(deck));
     });
-    // Aperçu agrandi de la jaquette du deck au survol.
-    const imgWrap = card.querySelector(".shop-card-img-wrap");
-    imgWrap.addEventListener("mouseenter", () => showCardZoom(deck.image, deck.name));
-    imgWrap.addEventListener("mouseleave", hideCardZoom);
+    // Pas d'aperçu agrandi au survol de la jaquette du deck : le
+    // zoom au survol est réservé aux cartes individuelles (cartes du
+    // moment + détail d'un deck), pas aux decks eux-mêmes.
 
     if (!owned) {
       const btn = card.querySelector("button[data-deck-id]");

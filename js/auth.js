@@ -2,6 +2,7 @@
 // CHESS LORD — Authentification & profil joueur
 // =====================================================================
 import { auth, googleProvider, db, storage } from "./firebase-config.js";
+import { STARTER_DECK_ID } from "./decks.js";
 import {
   signInWithPopup,
   signOut,
@@ -105,7 +106,11 @@ function generateRandomPlayerName() {
  *  - level (int)
  *  - exp (int)     -> progression vers le niveau suivant
  *  - pieces (int)
- *  - decks (tableau de strings) -> identifiants des decks possédés
+ *  - decks (tableau de strings) -> identifiants des decks possédés.
+ *    Le "deck de départ" (STARTER_DECK_ID, voir js/decks.js) est
+ *    garanti présent pour TOUS les comptes : offert à la création,
+ *    et rattrapé ici pour les comptes déjà existants qui ne
+ *    l'auraient pas encore (mise à jour rétroactive silencieuse).
  *  - displayName (texte, généré aléatoirement à la 1ère connexion,
  *    modifiable ensuite depuis le lobby)
  *  - photoURL (fichier stocké dans Firebase Storage, uploadable)
@@ -116,29 +121,36 @@ async function ensureUserProfile(user) {
 
   if (snap.exists()) {
     const data = snap.data();
+    const existingDecks = Array.isArray(data.decks) ? data.decks : [];
+    const decks = existingDecks.includes(STARTER_DECK_ID)
+      ? existingDecks
+      : [...existingDecks, STARTER_DECK_ID];
+
     // Connexions suivantes : on NE touche PAS au nom / à la photo / aux
-    // stats, on met juste à jour la date de dernière connexion. Les
-    // données du compte restent celles choisies/uploadées par le joueur.
-    await setDoc(ref, { lastLogin: serverTimestamp() }, { merge: true });
+    // stats, on met juste à jour la date de dernière connexion (et on
+    // rattrape le deck de départ s'il manquait). Les données du compte
+    // restent celles choisies/uploadées par le joueur.
+    await setDoc(ref, { lastLogin: serverTimestamp(), decks }, { merge: true });
     return {
       displayName: data.displayName || generateRandomPlayerName(),
       photoURL: data.photoURL || "",
       level: Number.isFinite(data.level) ? data.level : 1,
       exp: Number.isFinite(data.exp) ? data.exp : 0,
       pieces: Number.isFinite(data.pieces) ? data.pieces : 0,
-      decks: Array.isArray(data.decks) ? data.decks : [],
+      decks,
       createdAt: data.createdAt
     };
   }
 
-  // Toute première connexion : on initialise le profil.
+  // Toute première connexion : on initialise le profil, avec le deck
+  // de départ déjà débloqué.
   const newProfile = {
     displayName: generateRandomPlayerName(),
     photoURL: user.photoURL || "", // valeur de départ = photo Google, modifiable ensuite
     level: 1,
     exp: 0,
     pieces: 0,
-    decks: [],
+    decks: [STARTER_DECK_ID],
     createdAt: serverTimestamp(),
     lastLogin: serverTimestamp()
   };
@@ -313,7 +325,7 @@ onAuthStateChanged(auth, async (user) => {
       level: 1,
       exp: 0,
       pieces: 0,
-      decks: []
+      decks: [STARTER_DECK_ID]
     };
   }
   notify();

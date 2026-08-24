@@ -30,7 +30,22 @@ function placeholderDeckCards(prefix) {
   }));
 }
 
+// Identifiant STABLE du deck offert automatiquement à chaque joueur
+// dès la création de son compte (voir js/auth.js -> ensureUserProfile).
+// Ne pas changer cet id une fois en prod : il est écrit dans le
+// tableau `decks` de tous les documents Firestore existants.
+export const STARTER_DECK_ID = "deck-starter";
+
 export const DECK_CATALOG = [
+  {
+    id: STARTER_DECK_ID,
+    name: "Deck de Départ",
+    cost: 0,
+    starter: true, // offert d'office, jamais en vente dans la boutique
+    image: "assets/decks/deck-starter.png",
+    tagline: "Offert automatiquement à chaque nouveau compte.",
+    cards: placeholderDeckCards("starter")
+  },
   {
     id: "deck-fleur",
     name: "Deck Fleur",
