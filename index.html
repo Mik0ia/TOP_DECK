@@ -132,20 +132,53 @@
 
 <!-- ===================== MODALE : BOUTIQUE ===================== -->
 <div class="modal-overlay" id="modalShop">
-  <div class="modal modal-parchment modal-wide">
-    <button class="modal-close" data-close="modalShop">&times;</button>
-    <h2 class="modal-title">Boutique</h2>
-    <p class="modal-sub">Choisis un deck de départ pour tes parties.</p>
-
-    <div class="shop-balance">
-      <span class="shop-balance-coin" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="9" fill="currentColor"/></svg>
+  <div class="modal modal-shop">
+    <div class="shop-header">
+      <h2 class="modal-title">Boutique</h2>
+      <span class="shop-balance">
+        <span class="pieces-badge-coin" aria-hidden="true"></span>
+        <span id="shopBalance">0</span> pièces
       </span>
-      <span id="shopBalance">0</span> pièces disponibles
     </div>
 
-    <div class="shop-grid" id="shopGrid"></div>
+    <div class="shop-scroll" id="shopScroll">
+      <section class="shop-section">
+        <h3 class="shop-section-title">Cartes du moment</h3>
+        <div class="shop-grid" id="shopCardsGrid"></div>
+      </section>
+
+      <section class="shop-section">
+        <h3 class="shop-section-title">Deck du moment</h3>
+        <div class="shop-grid" id="shopGrid"></div>
+      </section>
+    </div>
+
+    <div class="shop-footer">
+      <button type="button" class="btn btn-outline-gold btn-block" data-close="modalShop">Fermer</button>
+    </div>
   </div>
+</div>
+
+<!-- ===================== MODALE : DÉTAIL D'UN DECK ===================== -->
+<div class="modal-overlay" id="modalDeckDetail">
+  <div class="modal modal-shop">
+    <div class="shop-header">
+      <h2 class="modal-title" id="deckDetailTitle">Deck</h2>
+    </div>
+
+    <div class="shop-scroll">
+      <div class="shop-cards-grid" id="deckDetailGrid"></div>
+    </div>
+
+    <div class="shop-footer">
+      <button type="button" class="btn btn-outline-gold btn-block" data-close="modalDeckDetail">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Aperçu agrandi d'une carte au survol (boutique / détail de deck) -->
+<div class="card-zoom-overlay" id="cardZoomOverlay" aria-hidden="true">
+  <img id="cardZoomImg" src="" alt="">
 </div>
 
 <!-- ===================== MODALE : SALLE D'ATTENTE ===================== -->

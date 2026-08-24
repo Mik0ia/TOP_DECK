@@ -21,7 +21,7 @@ import {
   subscribeRoom,
   subscribePlayers
 } from "./rooms.js";
-import { DECK_CATALOG } from "./decks.js";
+import { DECK_CATALOG, FEATURED_CARDS } from "./decks.js";
 
 // ---------------------------------------------------------------
 // Références DOM
@@ -49,8 +49,17 @@ const roomList = document.getElementById("roomList");
 const roomListEmpty = document.getElementById("roomListEmpty");
 
 const modalShop = document.getElementById("modalShop");
+const shopScroll = document.getElementById("shopScroll");
 const shopGrid = document.getElementById("shopGrid");
+const shopCardsGrid = document.getElementById("shopCardsGrid");
 const shopBalance = document.getElementById("shopBalance");
+
+const modalDeckDetail = document.getElementById("modalDeckDetail");
+const deckDetailTitle = document.getElementById("deckDetailTitle");
+const deckDetailGrid = document.getElementById("deckDetailGrid");
+
+const cardZoomOverlay = document.getElementById("cardZoomOverlay");
+const cardZoomImg = document.getElementById("cardZoomImg");
 
 const modalRoom = document.getElementById("modalRoom");
 const roomViewName = document.getElementById("roomViewName");
@@ -98,20 +107,90 @@ function showToast(message, type = "") {
 // ---------------------------------------------------------------
 // Modales génériques
 // ---------------------------------------------------------------
+// On verrouille le scroll du <body> tant qu'au moins une modale est
+// ouverte : sans ça, un contenu de modale plus haut que l'écran (la
+// boutique, par exemple) faisait scroller le FOND derrière la
+// fenêtre plutôt que la fenêtre elle-même (le scroll "passait à
+// travers"). La boutique et le détail d'un deck peuvent être
+// ouverts en même temps (l'un par-dessus l'autre), d'où le compteur
+// plutôt qu'un simple booléen.
+let openModalCount = 0;
 function openModal(el) {
+  if (el.classList.contains("open")) return;
   el.classList.add("open");
+  openModalCount++;
+  document.body.classList.add("modal-open");
 }
 function closeModal(el) {
+  if (!el.classList.contains("open")) return;
   el.classList.remove("open");
+  openModalCount = Math.max(0, openModalCount - 1);
+  if (openModalCount === 0) document.body.classList.remove("modal-open");
+  hideCardZoom();
 }
 document.querySelectorAll("[data-close]").forEach((btn) => {
   btn.addEventListener("click", () => closeModal(document.getElementById(btn.dataset.close)));
 });
-[modalCreate, modalJoin, modalShop].forEach((overlay) => {
+[modalCreate, modalJoin, modalShop, modalDeckDetail].forEach((overlay) => {
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) closeModal(overlay);
   });
 });
+
+// ---------------------------------------------------------------
+// Aperçu agrandi d'une carte au survol (boutique + détail de deck)
+// ---------------------------------------------------------------
+function showCardZoom(src, alt) {
+  cardZoomImg.src = src;
+  cardZoomImg.alt = alt || "";
+  cardZoomOverlay.classList.add("show");
+}
+function hideCardZoom() {
+  cardZoomOverlay.classList.remove("show");
+}
+/** Rend un mini-visuel de carte (grille "cartes du moment" / détail deck). */
+function renderCardMini(card) {
+  const el = document.createElement("div");
+  el.className = "shop-card-mini";
+  el.innerHTML = `<img src="${escapeAttr(card.image)}" alt="${escapeAttr(card.name)}">`;
+  el.addEventListener("mouseenter", () => showCardZoom(card.image, card.name));
+  el.addEventListener("mouseleave", hideCardZoom);
+  // Petite tolérance tactile : un tap ouvre/ferme l'aperçu.
+  el.addEventListener("click", () => {
+    if (cardZoomOverlay.classList.contains("show") && cardZoomImg.src.endsWith(card.image)) {
+      hideCardZoom();
+    } else {
+      showCardZoom(card.image, card.name);
+    }
+  });
+  return el;
+}
+/**
+ * Rend une carte "mise en avant" dans la section Cartes du moment.
+ * Purement visuel pour l'instant : la vente de cartes à l'unité
+ * n'existe pas encore côté Firestore/logique de jeu, donc le bouton
+ * "Acheter" informe juste que ça arrive plus tard au lieu de tenter
+ * un achat.
+ */
+function renderFeaturedCard(card) {
+  const el = document.createElement("div");
+  el.className = "shop-card";
+  el.innerHTML = `
+    <div class="shop-card-img-wrap">
+      <img src="${escapeAttr(card.image)}" alt="${escapeAttr(card.name)}">
+    </div>
+    <div class="shop-card-body">
+      <button type="button" class="btn btn-gold btn-sm">Acheter</button>
+    </div>
+  `;
+  const imgWrap = el.querySelector(".shop-card-img-wrap");
+  imgWrap.addEventListener("mouseenter", () => showCardZoom(card.image, card.name));
+  imgWrap.addEventListener("mouseleave", hideCardZoom);
+  el.querySelector("button").addEventListener("click", () => {
+    showToast("La vente de cartes à l'unité arrive bientôt !");
+  });
+  return el;
+}
 
 // ---------------------------------------------------------------
 // Auth UI
@@ -316,17 +395,26 @@ btnOpenJoin.addEventListener("click", () => {
 btnShop.addEventListener("click", () => {
   if (!requireAuth()) return;
   renderShop();
+  shopScroll.scrollTop = 0;
   openModal(modalShop);
 });
 
 // ---------------------------------------------------------------
-// Boutique : rendu des decks + achat
+// Boutique : rendu des "cartes du moment" (vitrine, pas encore en
+// vente à l'unité) + des decks + achat.
 // ---------------------------------------------------------------
 function renderShop() {
   const pieces = currentProfile?.pieces ?? 0;
   const ownedDecks = currentProfile?.decks ?? [];
   shopBalance.textContent = pieces;
 
+  // --- Cartes du moment (placeholders, purement visuel pour l'instant) ---
+  shopCardsGrid.innerHTML = "";
+  FEATURED_CARDS.forEach((card) => {
+    shopCardsGrid.appendChild(renderFeaturedCard(card));
+  });
+
+  // --- Decks ---
   shopGrid.innerHTML = "";
   DECK_CATALOG.forEach((deck) => {
     const owned = ownedDecks.includes(deck.id);
@@ -335,11 +423,11 @@ function renderShop() {
     const card = document.createElement("div");
     card.className = "shop-card";
     card.innerHTML = `
-      <div class="shop-card-img-wrap">
+      <div class="shop-card-img-wrap" data-role="open-detail">
         <img src="${escapeAttr(deck.image)}" alt="${escapeAttr(deck.name)}">
       </div>
       <div class="shop-card-body">
-        <p class="shop-card-name">${escapeHtml(deck.name)}</p>
+        <p class="shop-card-name" data-role="open-detail">${escapeHtml(deck.name)}</p>
         <p class="shop-card-tagline">${escapeHtml(deck.tagline || "")}</p>
         <span class="shop-card-price">
           <span class="pieces-badge-coin" aria-hidden="true"></span>
@@ -352,12 +440,25 @@ function renderShop() {
                  ${canAfford ? "Acheter" : "Pas assez de pièces"}
                </button>`
         }
+        <p class="shop-card-hint">Voir les 10 cartes</p>
       </div>
     `;
 
+    // Ouvrir le détail du deck (image ou nom du deck).
+    card.querySelectorAll('[data-role="open-detail"]').forEach((el) => {
+      el.addEventListener("click", () => openDeckDetail(deck));
+    });
+    // Aperçu agrandi de la jaquette du deck au survol.
+    const imgWrap = card.querySelector(".shop-card-img-wrap");
+    imgWrap.addEventListener("mouseenter", () => showCardZoom(deck.image, deck.name));
+    imgWrap.addEventListener("mouseleave", hideCardZoom);
+
     if (!owned) {
       const btn = card.querySelector("button[data-deck-id]");
-      btn.addEventListener("click", () => buyDeck(deck, btn));
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        buyDeck(deck, btn);
+      });
     }
 
     shopGrid.appendChild(card);
@@ -378,6 +479,18 @@ async function buyDeck(deck, btnEl) {
     btnEl.disabled = false;
     btnEl.textContent = originalLabel;
   }
+}
+
+// ---------------------------------------------------------------
+// Détail d'un deck : les 10 cartes qui le composent
+// ---------------------------------------------------------------
+function openDeckDetail(deck) {
+  deckDetailTitle.textContent = deck.name;
+  deckDetailGrid.innerHTML = "";
+  (deck.cards || []).forEach((card) => {
+    deckDetailGrid.appendChild(renderCardMini(card));
+  });
+  openModal(modalDeckDetail);
 }
 btnSupport.addEventListener("click", () => {
   showToast("Le support n'est pas encore disponible.");

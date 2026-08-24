@@ -66,6 +66,14 @@ input, select { font-family: inherit; }
 
 ::selection { background: var(--yellow); color: var(--blue-ink); }
 
+/* Empêche le fond de scroller quand une modale est ouverte (voir
+   openModal/closeModal dans js/main.js) : sans ça, un contenu de
+   modale plus haut que l'écran faisait défiler la page derrière la
+   fenêtre plutôt que la fenêtre elle-même. */
+body.modal-open {
+  overflow: hidden;
+}
+
 /* =========================================================
    SCENE — fond "rayons de soleil" bleu fourni + étincelles
    ========================================================= */
@@ -840,26 +848,100 @@ select.field-input { cursor: pointer; }
 }
 
 /* =========================================================
-   BOUTIQUE
+   BOUTIQUE — panneau scrollable (modal-shop)
    ========================================================= */
+.modal-shop {
+  display: flex;
+  flex-direction: column;
+  max-width: 720px;
+  width: 100%;
+  max-height: min(720px, 88vh);
+  padding: 0;
+  overflow: hidden;
+}
+
+.shop-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 22px 26px 16px;
+  border-bottom: 3px solid var(--blue-pale);
+}
+.shop-header .modal-title { margin: 0; text-align: left; }
+
 .shop-balance {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
+  gap: 7px;
   color: var(--blue-deep);
   font-weight: 800;
   font-size: 13.5px;
-  margin-bottom: 22px;
-}
-.shop-balance-coin {
-  display: inline-flex;
-  color: var(--yellow-deep);
+  background: var(--blue-pale);
+  border-radius: 999px;
+  padding: 6px 14px;
+  white-space: nowrap;
 }
 
+/* Zone qui scrolle réellement : le fond derrière la fenêtre reste
+   immobile (voir aussi le lock de scroll du <body> en JS pendant
+   qu'une modale est ouverte). */
+.shop-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 20px 26px;
+  overscroll-behavior: contain;
+}
+.shop-scroll::-webkit-scrollbar { width: 8px; }
+.shop-scroll::-webkit-scrollbar-thumb { background: var(--blue-pale); border-radius: 4px; }
+
+.shop-section { margin-bottom: 28px; }
+.shop-section:last-child { margin-bottom: 4px; }
+.shop-section-title {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: .03em;
+  font-size: 17px;
+  color: var(--blue-deep);
+  margin: 0 0 14px;
+}
+
+.shop-footer {
+  flex-shrink: 0;
+  padding: 16px 26px 22px;
+  border-top: 3px solid var(--blue-pale);
+}
+
+/* ---- Grille de "cartes" (cartes du moment + détail d'un deck) ---- */
+.shop-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 14px;
+}
+.shop-card-mini {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 3px solid var(--outline);
+  box-shadow: var(--shadow-comic);
+  background: var(--blue-pale);
+  aspect-ratio: 3 / 4.2;
+  transition: transform .13s ease, box-shadow .13s ease;
+}
+.shop-card-mini:hover { transform: translateY(-3px); box-shadow: 6px 7px 0 rgba(11,10,40,.32); }
+.shop-card-mini img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none; /* le survol est géré sur le conteneur */
+}
+
+/* ---- Grille des decks ---- */
 .shop-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 16px;
 }
 
@@ -880,12 +962,14 @@ select.field-input { cursor: pointer; }
   aspect-ratio: 3 / 4;
   background: var(--blue-pale);
   overflow: hidden;
+  cursor: pointer;
 }
 .shop-card-img-wrap img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+  pointer-events: none; /* le survol/clic est géré sur le wrapper */
 }
 
 .shop-card-body {
@@ -902,6 +986,7 @@ select.field-input { cursor: pointer; }
   color: var(--blue-deep);
   letter-spacing: .02em;
   margin: 0;
+  cursor: pointer;
 }
 .shop-card-tagline {
   font-size: 11.5px;
@@ -937,6 +1022,45 @@ select.field-input { cursor: pointer; }
   padding: 9px;
   margin-top: 4px;
 }
+.shop-card-hint {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-navy-dim);
+  text-align: center;
+  margin: 0;
+}
+
+/* ---- Aperçu agrandi au survol d'une carte ---- */
+.card-zoom-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .12s ease;
+}
+.card-zoom-overlay.show { opacity: 1; }
+.card-zoom-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(4,14,45,.55);
+}
+.card-zoom-overlay img {
+  position: relative;
+  width: min(320px, 60vw);
+  aspect-ratio: 3 / 4.2;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  border: 5px solid var(--outline);
+  box-shadow: 0 25px 60px rgba(0,0,0,.55);
+  transform: scale(.92);
+  transition: transform .15s ease;
+}
+.card-zoom-overlay.show img { transform: scale(1); }
 
 /* =========================================================
    MISC
@@ -946,4 +1070,7 @@ select.field-input { cursor: pointer; }
   .room-header { flex-direction: column; align-items: flex-start; }
   .room-code-box { align-items: flex-start; width: 100%; }
   .shop-grid { grid-template-columns: repeat(2, 1fr); }
+  .shop-cards-grid { grid-template-columns: repeat(3, 1fr); }
+  .shop-header, .shop-scroll, .shop-footer { padding-left: 18px; padding-right: 18px; }
+  .card-zoom-overlay img { width: min(220px, 68vw); }
 }
