@@ -30,6 +30,36 @@ function placeholderDeckCards(prefix) {
   }));
 }
 
+// -----------------------------------------------------------------
+// Construit la liste des cartes d'un deck à partir d'une composition
+// { idCarte: quantité }. Chaque type de carte pointe vers son propre
+// JPG placeholder (assets/cards/<id>.jpg) — pas encore d'attributs de
+// jeu (attaque/défense/effet/etc.), juste l'illustration et le nom
+// pour l'instant. Les attributs viendront dans une prochaine passe.
+// -----------------------------------------------------------------
+function buildDeckCards(prefix, composition) {
+  const cards = [];
+  Object.entries(composition).forEach(([cardId, count]) => {
+    for (let i = 0; i < count; i++) {
+      cards.push({
+        id: `${prefix}-${cardId}-${i + 1}`,
+        name: CARD_NAMES[cardId] || cardId,
+        image: `assets/cards/${cardId}.jpg`
+      });
+    }
+  });
+  return cards;
+}
+
+// Noms d'affichage des types de cartes existants (sans attributs pour
+// l'instant — juste de quoi afficher un nom lisible sur la carte).
+const CARD_NAMES = {
+  fleur: "Fleur",
+  arrosoir: "Arrosoir",
+  pot: "Pot",
+  bouquet: "Bouquet"
+};
+
 // Identifiant STABLE du deck offert automatiquement à chaque joueur
 // dès la création de son compte (voir js/auth.js -> ensureUserProfile).
 // Ne pas changer cet id une fois en prod : il est écrit dans le
@@ -52,7 +82,7 @@ export const DECK_CATALOG = [
     cost: 10,
     image: "assets/decks/deck-fleur.png",
     tagline: "Un deck vif et fragile, misant sur la croissance rapide.",
-    cards: placeholderDeckCards("fleur")
+    cards: buildDeckCards("fleur", { fleur: 5, arrosoir: 1, pot: 2, bouquet: 2 })
   },
   {
     id: "deck-golem",
