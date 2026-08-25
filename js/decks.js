@@ -74,7 +74,7 @@ export const DECK_CATALOG = [
     starter: true, // offert d'office, jamais en vente dans la boutique
     image: "assets/decks/deck-starter.png",
     tagline: "Offert automatiquement à chaque nouveau compte.",
-    cards: buildDeckCards("starter", { tour: 3, vengeur: 2, slime: 3, bourrin: 1, protecteur: 1 })
+    cards: buildDeckCards("starter", { tour: 3, slime: 3, vengeur: 3, bourrin: 1, protecteur: 1 })
   },
   {
     id: "deck-fleur",
