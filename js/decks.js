@@ -90,7 +90,7 @@ export const DECK_CATALOG = [
     cost: 10,
     image: "assets/decks/deck-golem.png",
     tagline: "Des cartes lentes et robustes, taillées pour encaisser.",
-    cards: placeholderDeckCards("golem")
+    cards: buildDeckCards("golem", { caillou: 5, rocher: 3, golem: 2 })
   },
   {
     id: "deck-ferme",
