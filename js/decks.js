@@ -20,6 +20,12 @@
 //
 // Pour ajouter un futur deck en boutique : ajoute simplement une
 // entrée ici avec un nouvel `id` unique.
+//
+// `description` : le texte affiché sous le nom du deck dans la
+// boutique (et dans le détail du deck) — modifie directement ce
+// champ pour changer le texte, aucun autre fichier à toucher.
+import { CARD_CATALOG } from "./cards.js";
+
 const PLACEHOLDER_CARD = "assets/cards/placeholder-card.png";
 
 function placeholderDeckCards(prefix) {
@@ -32,33 +38,29 @@ function placeholderDeckCards(prefix) {
 
 // -----------------------------------------------------------------
 // Construit la liste des cartes d'un deck à partir d'une composition
-// { idCarte: quantité }. Chaque type de carte pointe vers son propre
-// JPG placeholder (assets/cards/<id>.jpg) — pas encore d'attributs de
-// jeu (attaque/défense/effet/etc.), juste l'illustration et le nom
-// pour l'instant. Les attributs viendront dans une prochaine passe.
+// { idCarte: quantité }. Chaque type de carte est repris depuis le
+// catalogue (js/cards.js) : nom, rareté, attaque, défense et image
+// sont donc ceux définis là-bas. Les effets de carte ne sont pas
+// encore gérés, ils viendront dans une prochaine passe.
 // -----------------------------------------------------------------
 function buildDeckCards(prefix, composition) {
   const cards = [];
   Object.entries(composition).forEach(([cardId, count]) => {
+    const cardDef = CARD_CATALOG[cardId];
+    if (!cardDef) {
+      console.warn(`Carte inconnue dans le catalogue : "${cardId}"`);
+      return;
+    }
     for (let i = 0; i < count; i++) {
       cards.push({
+        ...cardDef,
         id: `${prefix}-${cardId}-${i + 1}`,
-        name: CARD_NAMES[cardId] || cardId,
-        image: `assets/cards/${cardId}.jpg`
+        typeId: cardDef.id
       });
     }
   });
   return cards;
 }
-
-// Noms d'affichage des types de cartes existants (sans attributs pour
-// l'instant — juste de quoi afficher un nom lisible sur la carte).
-const CARD_NAMES = {
-  fleur: "Fleur",
-  arrosoir: "Arrosoir",
-  pot: "Pot",
-  bouquet: "Bouquet"
-};
 
 // Identifiant STABLE du deck offert automatiquement à chaque joueur
 // dès la création de son compte (voir js/auth.js -> ensureUserProfile).
@@ -73,15 +75,15 @@ export const DECK_CATALOG = [
     cost: 0,
     starter: true, // offert d'office, jamais en vente dans la boutique
     image: "assets/decks/deck-starter.png",
-    tagline: "Offert automatiquement à chaque nouveau compte.",
-    cards: buildDeckCards("starter", { tour: 3, slime: 3, vengeur: 3, bourrin: 1, protecteur: 1 })
+    description: "La base des deck, bonne cartes versatile.",
+    cards: buildDeckCards("starter", { tour: 3, slime: 3, vengeur: 2, bourrin: 1, protecteur: 1 })
   },
   {
     id: "deck-fleur",
     name: "Deck Fleur",
     cost: 10,
     image: "assets/decks/deck-fleur.png",
-    tagline: "Un deck vif et fragile, misant sur la croissance rapide.",
+    description: "Accumuler des bonus et surprenez avec la puissance caché de votre jardin.",
     cards: buildDeckCards("fleur", { fleur: 5, arrosoir: 1, pot: 2, bouquet: 2 })
   },
   {
@@ -89,7 +91,7 @@ export const DECK_CATALOG = [
     name: "Deck Golem",
     cost: 10,
     image: "assets/decks/deck-golem.png",
-    tagline: "Des cartes lentes et robustes, taillées pour encaisser.",
+    description: "Des cartes lentes et puissante, simple et efficace.",
     cards: buildDeckCards("golem", { caillou: 6, rocher: 3, golem: 1 })
   },
   {
@@ -97,7 +99,7 @@ export const DECK_CATALOG = [
     name: "Deck Ferme",
     cost: 10,
     image: "assets/decks/deck-ferme.png",
-    tagline: "Un deck d'accumulation, patient et régulier.",
+    description: "Un deck d'accumulation, patient et régulier.",
     cards: placeholderDeckCards("ferme")
   }
 ];

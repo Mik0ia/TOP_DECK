@@ -56,6 +56,7 @@ const shopBalance = document.getElementById("shopBalance");
 
 const modalDeckDetail = document.getElementById("modalDeckDetail");
 const deckDetailTitle = document.getElementById("deckDetailTitle");
+const deckDetailDescription = document.getElementById("deckDetailDescription");
 const deckDetailGrid = document.getElementById("deckDetailGrid");
 
 const cardZoomOverlay = document.getElementById("cardZoomOverlay");
@@ -428,7 +429,7 @@ function renderShop() {
       </div>
       <div class="shop-card-body">
         <p class="shop-card-name" data-role="open-detail">${escapeHtml(deck.name)}</p>
-        <p class="shop-card-tagline">${escapeHtml(deck.tagline || "")}</p>
+        <p class="shop-card-tagline">${escapeHtml(deck.description || "")}</p>
         <span class="shop-card-price">
           <span class="pieces-badge-coin" aria-hidden="true"></span>
           ${deck.cost} pièces
@@ -485,6 +486,9 @@ async function buyDeck(deck, btnEl) {
 // ---------------------------------------------------------------
 function openDeckDetail(deck) {
   deckDetailTitle.textContent = deck.name;
+  if (deckDetailDescription) {
+    deckDetailDescription.textContent = deck.description || "";
+  }
   deckDetailGrid.innerHTML = "";
   (deck.cards || []).forEach((card) => {
     deckDetailGrid.appendChild(renderCardMini(card));
