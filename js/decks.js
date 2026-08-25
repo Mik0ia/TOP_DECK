@@ -74,7 +74,7 @@ export const DECK_CATALOG = [
     starter: true, // offert d'office, jamais en vente dans la boutique
     image: "assets/decks/deck-starter.png",
     tagline: "Offert automatiquement à chaque nouveau compte.",
-    cards: placeholderDeckCards("starter")
+    cards: buildDeckCards("starter", { tour: 3, vengeur: 2, slime: 3, bourrin: 1, protecteur: 1 })
   },
   {
     id: "deck-fleur",
@@ -90,7 +90,7 @@ export const DECK_CATALOG = [
     cost: 10,
     image: "assets/decks/deck-golem.png",
     tagline: "Des cartes lentes et robustes, taillées pour encaisser.",
-    cards: buildDeckCards("golem", { caillou: 5, rocher: 3, golem: 2 })
+    cards: buildDeckCards("golem", { caillou: 6, rocher: 3, golem: 1 })
   },
   {
     id: "deck-ferme",
