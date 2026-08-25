@@ -34,7 +34,7 @@ export const CARD_CATALOG = {
     id: "fleur",
     name: "Fleur",
     rarity: CARD_RARITY.COMMON,
-    attack: 1,
+    attack: 0,
     defense: 1,
     image: "assets/cards/fleur.jpg"
   },
@@ -42,24 +42,96 @@ export const CARD_CATALOG = {
     id: "arrosoir",
     name: "Arrosoir",
     rarity: CARD_RARITY.RARE,
-    attack: 2,
+    attack: 0,
     defense: 3,
     image: "assets/cards/arrosoir.jpg"
   },
   pot: {
     id: "pot",
     name: "Pot",
-    rarity: CARD_RARITY.COMMON,
-    attack: 1,
+    rarity: CARD_RARITY.RARE,
+    attack: 0,
     defense: 2,
     image: "assets/cards/pot.jpg"
   },
   bouquet: {
     id: "bouquet",
     name: "Bouquet",
-    rarity: CARD_RARITY.LEGENDARY,
-    attack: 3,
+    rarity: CARD_RARITY.RARE,
+    attack: 0,
     defense: 2,
     image: "assets/cards/bouquet.jpg"
+  },
+  caillou: {
+    id: "caillou",
+    name: "Caillou",
+    rarity: CARD_RARITY.COMMON,
+    attack: 1,
+    defense: 1,
+    image: "assets/cards/caillou.jpg"
+  },
+  rocher: {
+    id: "rocher",
+    name: "Rocher",
+    rarity: CARD_RARITY.RARE,
+    attack: 2,
+    defense: 3,
+    image: "assets/cards/rocher.jpg"
+  },
+  golem: {
+    id: "golem",
+    name: "Golem",
+    rarity: CARD_RARITY.LEGENDARY,
+    attack: 3,
+    defense: 4,
+    image: "assets/cards/golem.jpg"
+  },
+  tour: {
+    id: "tour",
+    name: "Tour",
+    rarity: CARD_RARITY.COMMON,
+    attack: 0,
+    defense: 2,
+    image: "assets/cards/tour.jpg"
+  },
+  vengeur: {
+    id: "vengeur",
+    name: "Vengeur",
+    rarity: CARD_RARITY.RARE,
+    attack: 1,
+    defense: 1,
+    image: "assets/cards/vengeur.jpg"
+  },
+  bourrin: {
+    id: "bourrin",
+    name: "Bourrin",
+    rarity: CARD_RARITY.RARE,
+    attack: 3,
+    defense: 1,
+    image: "assets/cards/bourrin.jpg"
+  },
+  protecteur: {
+    id: "protecteur",
+    name: "Protecteur",
+    rarity: CARD_RARITY.RARE,
+    attack: 1,
+    defense: 3,
+    image: "assets/cards/protecteur.jpg"
+  },
+  slime: {
+    id: "slime",
+    name: "Slime",
+    rarity: CARD_RARITY.RARE,
+    attack: 2,
+    defense: 2,
+    image: "assets/cards/slime.jpg"
+  },
+  chevalier: {
+    id: "chevalier",
+    name: "Chevalier",
+    rarity: CARD_RARITY.LEGENDARY,
+    attack: 4,
+    defense: 4,
+    image: "assets/cards/chevalier.jpg"
   }
 };
