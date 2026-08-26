@@ -92,10 +92,18 @@
   <div class="modal modal-parchment">
     <button class="modal-close" data-close="modalCreate">&times;</button>
     <h2 class="modal-title">Créer une table</h2>
-    <p class="modal-sub">Donne un nom à ta salle et fixe le nombre de joueurs admis.</p>
+    <p class="modal-sub">Donne un nom à ta salle, choisis le mode de jeu et le nombre de joueurs.</p>
 
     <label class="field-label" for="createRoomName">Nom de la salle</label>
     <input type="text" id="createRoomName" class="field-input" placeholder="La table de la victoire" maxlength="28">
+
+    <label class="field-label" for="createRoomMode">Mode de jeu</label>
+    <select id="createRoomMode" class="field-input">
+      <option value="SURVIE" selected>Survie — le plus de kills quand les decks sont vides</option>
+      <option value="PV_5">5 PV — chaque kill subi retire 1 PV</option>
+      <option value="PV_7">7 PV — chaque kill subi retire 1 PV</option>
+      <option value="PV_10">10 PV — chaque kill subi retire 1 PV</option>
+    </select>
 
     <label class="field-label" for="createRoomMax">Joueurs maximum</label>
     <select id="createRoomMax" class="field-input">
@@ -195,6 +203,7 @@
       <div class="room-code-box">
         <span class="room-code-label">Code de la salle</span>
         <span class="room-code" id="roomViewCode">------</span>
+        <span class="room-code-label" id="roomViewMode">—</span>
       </div>
     </div>
 

@@ -19,8 +19,11 @@ import {
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+import { isValidGameMode } from "./engine/modes.js";
+
 const ROOMS = "rooms";
 const PLAYERS = "players";
+const MATCHES = "matches";
 
 // Alphabet sans caractères ambigus (0/O, 1/I) pour des codes lisibles.
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -38,7 +41,12 @@ function generateCode(length = 6) {
  * d'identifiant de document, ce qui permet une jointure par code en
  * une seule lecture.
  */
-export async function createRoom({ name, maxPlayers }, user, profile) {
+export async function createRoom({ name, maxPlayers, gameMode }, user, profile) {
+  // Le mode de jeu est une option OBLIGATOIRE de la création de salle
+  // (brief §4.2) : toute valeur hors des 4 modes est refusée.
+  if (!isValidGameMode(gameMode)) {
+    throw new Error("Choisis un mode de jeu valide (Survie, 5 PV, 7 PV ou 10 PV).");
+  }
   let code, ref, attempt = 0;
 
   do {
@@ -58,6 +66,7 @@ export async function createRoom({ name, maxPlayers }, user, profile) {
     hostName: profile.displayName,
     hostPhoto: profile.photoURL || "",
     maxPlayers: Number(maxPlayers) || 8,
+    gameMode,
     playerCount: 1,
     status: "waiting",
     createdAt: serverTimestamp()
@@ -176,6 +185,9 @@ export async function leaveRoom(code, uid) {
     await deletePlayersSubcollection(code).catch((e) =>
       console.error("Nettoyage des joueurs de la salle impossible :", e)
     );
+    await deleteMatchesSubcollection(code).catch((e) =>
+      console.error("Nettoyage des matchs de la salle impossible :", e)
+    );
   } else if (hostLeftWithRemainingPlayers) {
     await reassignHost(code, uid).catch((e) => console.error("Transfert d'hôte impossible :", e));
   }
@@ -191,8 +203,17 @@ export async function leaveRoom(code, uid) {
  * saturer la base au fil des parties.
  */
 async function deletePlayersSubcollection(code) {
-  const playersRef = collection(db, ROOMS, code, PLAYERS);
-  const snap = await getDocs(playersRef);
+  await deleteSubcollection(code, PLAYERS);
+}
+
+/** Idem pour la sous-collection "matches" (documents de match). */
+async function deleteMatchesSubcollection(code) {
+  await deleteSubcollection(code, MATCHES);
+}
+
+async function deleteSubcollection(code, name) {
+  const ref = collection(db, ROOMS, code, name);
+  const snap = await getDocs(ref);
   if (snap.empty) return;
 
   const batch = writeBatch(db);
@@ -241,6 +262,7 @@ async function reassignHost(code, previousHostUid) {
  */
 export async function closeRoom(code) {
   await deletePlayersSubcollection(code);
+  await deleteMatchesSubcollection(code).catch((e) => console.error(e));
   const roomRef = doc(db, ROOMS, code);
   await deleteDoc(roomRef);
 }
@@ -274,8 +296,7 @@ export async function removePlayerDoc(code, uid) {
 // orderConfirmed) — les règles Firestore l'y autorisent déjà, et
 // l'hôte peut compléter les fiches des joueurs muets (timeout).
 
-export const DECK_PHASE_SECONDS = 15;
-export const ORDER_PHASE_SECONDS = 15;
+export const DECK_PHASE_SECONDS = 15; // durée de la phase de choix de deck
 
 /**
  * Lance la partie (réservé à l'hôte dans l'UI). La salle passe en
@@ -292,8 +313,13 @@ export async function launchGame(code) {
     tx.update(roomRef, {
       status: "deck_select",
       phaseEndsAt: Date.now() + DECK_PHASE_SECONDS * 1000,
-      matchups: null,
-      byeUid: null,
+      // Etat de tournoi remis à zéro (piloté ensuite par js/game.js)
+      tournament: null,
+      round: 0,
+      currentMatchIds: [],
+      roundByeUid: null,
+      championUid: null,
+      forfeits: {},
       gameStartedAt: serverTimestamp()
     });
   });
@@ -309,26 +335,40 @@ export async function setPlayerGameData(code, uid, data) {
 }
 
 /**
- * Passage en phase d'ordonnancement des cartes, avec les duels tirés
- * au sort. `matchups` : tableau de paires { a: uid, b: uid }.
- * `byeUid` : uid du joueur sans adversaire si nombre impair (null sinon).
+ * Ecrit des champs sur le document de la salle (merge). Utilisé par
+ * l'hôte pour piloter le tournoi (état, round, matchs du round…).
  */
-export async function advanceToOrdering(code, matchups, byeUid = null) {
-  await setDoc(
-    doc(db, ROOMS, code),
-    {
-      status: "ordering",
-      matchups,
-      byeUid,
-      phaseEndsAt: Date.now() + ORDER_PHASE_SECONDS * 1000
-    },
-    { merge: true }
-  );
+export async function updateRoomData(code, data) {
+  await setDoc(doc(db, ROOMS, code), data, { merge: true });
 }
 
-/** Passage au combat proprement dit (placeholder pour l'instant). */
-export async function advanceToBattle(code) {
-  await setDoc(doc(db, ROOMS, code), { status: "battle", phaseEndsAt: null }, { merge: true });
+// =====================================================================
+// Matchs (sous-collection rooms/{code}/matches/{matchId})
+// =====================================================================
+// Un document par match ; l'état qu'il contient a exactement la forme
+// produite par le moteur pur (js/engine/modes.js), plus les champs de
+// protocole (aPlayed/bPlayed, chi-fou-mi, deadlines…). Voir js/game.js
+// pour le protocole complet et DECISIONS.md (D1/D4) pour le modèle de
+// confiance.
+
+export async function createMatchDoc(code, matchId, data) {
+  await setDoc(doc(db, ROOMS, code, MATCHES, matchId), {
+    ...data,
+    createdAt: serverTimestamp()
+  });
+}
+
+export async function updateMatchDoc(code, matchId, data) {
+  await setDoc(doc(db, ROOMS, code, MATCHES, matchId), data, { merge: true });
+}
+
+/** Ecoute en temps réel TOUS les matchs de la salle. */
+export function subscribeMatches(code, callback) {
+  const ref = collection(db, ROOMS, code, MATCHES);
+  return onSnapshot(ref, (snap) => {
+    const matches = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    callback(matches);
+  });
 }
 
 /**

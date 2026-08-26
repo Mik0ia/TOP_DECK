@@ -39,6 +39,7 @@ const btnSupport = document.getElementById("btnSupport");
 const modalCreate = document.getElementById("modalCreate");
 const createRoomName = document.getElementById("createRoomName");
 const createRoomMax = document.getElementById("createRoomMax");
+const createRoomMode = document.getElementById("createRoomMode");
 const createError = document.getElementById("createError");
 const btnConfirmCreate = document.getElementById("btnConfirmCreate");
 
@@ -68,6 +69,7 @@ const roomViewName = document.getElementById("roomViewName");
 const roomViewCode = document.getElementById("roomViewCode");
 const roomViewCount = document.getElementById("roomViewCount");
 const roomViewMax = document.getElementById("roomViewMax");
+const roomViewMode = document.getElementById("roomViewMode");
 const playerList = document.getElementById("playerList");
 const btnLeaveRoom = document.getElementById("btnLeaveRoom");
 const btnCloseRoom = document.getElementById("btnCloseRoom");
@@ -375,6 +377,9 @@ function escapeAttr(str) {
 // ---------------------------------------------------------------
 // Garde d'accès : il faut être connecté pour créer / rejoindre
 // ---------------------------------------------------------------
+const GAME_MODE_LABELS = { SURVIE: "Survie", PV_5: "5 PV", PV_7: "7 PV", PV_10: "10 PV" };
+function gameModeLabel(mode) { return GAME_MODE_LABELS[mode] || mode || "—"; }
+
 function requireAuth() {
   if (!currentUser) {
     showToast("Connecte-toi avec Google pour continuer.", "error");
@@ -388,6 +393,7 @@ btnOpenCreate.addEventListener("click", () => {
   createError.textContent = "";
   createRoomName.value = "";
   createRoomMax.value = "8";
+  createRoomMode.value = "SURVIE";
   openModal(modalCreate);
 });
 
@@ -514,7 +520,7 @@ btnConfirmCreate.addEventListener("click", async () => {
   btnConfirmCreate.disabled = true;
   try {
     const code = await createRoom(
-      { name: createRoomName.value, maxPlayers: createRoomMax.value },
+      { name: createRoomName.value, maxPlayers: createRoomMax.value, gameMode: createRoomMode.value },
       currentUser,
       currentProfile
     );
@@ -586,7 +592,7 @@ function renderRoomList(rooms) {
       <img class="room-host-avatar" src="${escapeAttr(room.hostPhoto || DEFAULT_AVATAR)}" alt="">
       <div class="room-row-info">
         <div class="room-row-name">${escapeHtml(room.name)}</div>
-        <div class="room-row-meta">Hôte : ${escapeHtml(room.hostName)} · ${room.playerCount}/${room.maxPlayers} joueurs</div>
+        <div class="room-row-meta">Hôte : ${escapeHtml(room.hostName)} · ${room.playerCount}/${room.maxPlayers} joueurs · ${gameModeLabel(room.gameMode)}</div>
         <div class="room-row-code">CODE ${escapeHtml(room.id)}</div>
       </div>
       <button class="btn btn-green btn-sm" ${full ? "disabled" : ""}>${full ? "Complet" : "Rejoindre"}</button>
@@ -636,6 +642,7 @@ function enterRoomView(code, isHost) {
     roomViewCode.textContent = room.id;
     roomViewCount.textContent = room.playerCount;
     roomViewMax.textContent = room.maxPlayers;
+    roomViewMode.textContent = "Mode : " + gameModeLabel(room.gameMode);
 
     // L'hôte peut changer en cours de route (transfert automatique si
     // l'hôte précédent a quitté la salle) : on garde l'UI synchronisée.

@@ -509,3 +509,227 @@
   .arena { flex-direction: column; }
   .arena-vs { transform: rotate(0deg); font-size: 2.2rem; }
 }
+
+/* =========================================================
+   PLATEAU DE COMBAT (match en cours)
+   ---------------------------------------------------------
+   Disposition : adversaire en haut, zone de clash au centre,
+   toi en bas. Les cartes en attente sont face cachée tant
+   que les deux joueurs n'ont pas joué.
+   ========================================================= */
+.board {
+  position: relative;
+  width: min(920px, 96vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.board-side {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(6, 24, 70, .72);
+  border: 4px solid var(--outline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-comic);
+  padding: 10px 16px;
+}
+.board-top { border-top-color: var(--red); }
+.board-bottom { border-bottom-color: var(--yellow); }
+
+.board-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 3px solid var(--outline);
+  object-fit: cover;
+  background: var(--bg-1);
+  flex-shrink: 0;
+}
+.board-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.board-name {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  letter-spacing: .04em;
+  color: var(--paper);
+  text-shadow: 2px 2px 0 var(--outline);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-stats {
+  font-weight: 800;
+  font-size: .9rem;
+  color: var(--yellow);
+}
+
+/* Pioche & défausse */
+.board-piles { display: flex; gap: 10px; flex-shrink: 0; }
+.pile { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.pile-back {
+  width: 42px;
+  height: 58px;
+  border: 3px solid var(--outline);
+  border-radius: 7px;
+  background: radial-gradient(circle at 50% 40%, var(--blue) 0%, var(--blue-deep) 70%);
+  display: grid;
+  place-items: center;
+}
+.pile-back img { width: 26px; opacity: .95; }
+.pile-discard::before {
+  content: "";
+  width: 42px;
+  height: 58px;
+  border: 3px dashed var(--ink-faint);
+  border-radius: 7px;
+  display: block;
+  opacity: .5;
+}
+.pile-count { font-size: .75rem; font-weight: 800; color: var(--ink-dim); }
+
+/* Emplacement de la carte jouée ce tour */
+.played-slot { flex-shrink: 0; width: 78px; display: grid; place-items: center; }
+
+.mini-card {
+  position: relative;
+  width: 74px;
+  border: 3px solid var(--outline);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-0);
+  box-shadow: var(--shadow-comic);
+}
+.mini-card img { width: 100%; display: block; }
+.mini-card-stats {
+  position: absolute;
+  bottom: 2px;
+  right: 3px;
+  font-weight: 800;
+  font-size: .7rem;
+  color: var(--paper);
+  background: rgba(11, 10, 40, .78);
+  border-radius: 5px;
+  padding: 0 4px;
+}
+.mini-card-back {
+  background: radial-gradient(circle at 50% 40%, var(--blue) 0%, var(--blue-deep) 70%);
+  display: grid;
+  place-items: center;
+  height: 104px;
+}
+.mini-card-back img { width: 42px; opacity: .95; }
+.mini-card-empty {
+  height: 104px;
+  border-style: dashed;
+  border-color: var(--ink-faint);
+  box-shadow: none;
+  opacity: .45;
+}
+
+/* Zone centrale : dernier clash révélé */
+.clash-zone {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+}
+.clash-mode {
+  font-size: .8rem;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.clash-cards { display: flex; align-items: center; gap: 18px; min-height: 110px; }
+.clash-hint { color: var(--ink-faint); font-size: .85rem; }
+.clash-card { position: relative; transition: opacity .2s; }
+.clash-card.dead { opacity: .5; }
+.clash-card .skull {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 2.4rem;
+  filter: drop-shadow(2px 2px 0 var(--outline));
+}
+.clash-vs {
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  color: var(--red);
+  text-shadow: 2px 2px 0 var(--outline);
+}
+
+.btn-play { min-width: 220px; }
+.btn-sm { padding: 4px 12px; font-size: .8rem; }
+
+/* =========================================================
+   CHI-FOU-MI (départage d'égalité)
+   ========================================================= */
+.rps-overlay {
+  position: absolute;
+  inset: -10px;
+  background: rgba(4, 12, 40, .88);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+}
+.rps-box {
+  text-align: center;
+  background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
+  border: 4px solid var(--outline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-comic-lg);
+  padding: 22px 28px;
+  max-width: 90%;
+}
+.rps-box h3 {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  letter-spacing: .05em;
+  color: var(--yellow);
+  text-shadow: 2px 2px 0 var(--outline);
+}
+.rps-buttons { display: flex; gap: 16px; justify-content: center; margin-top: 12px; }
+.rps-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 2.6rem;
+  padding: 10px 18px;
+  background: var(--bg-0);
+  border: 4px solid var(--outline);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-comic);
+  cursor: pointer;
+  transition: transform .12s;
+}
+.rps-btn span {
+  font-family: var(--font-body);
+  font-size: .8rem;
+  font-weight: 800;
+  color: var(--ink);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.rps-btn:hover { transform: translateY(-4px); }
+
+/* =========================================================
+   CLASSEMENT & MATCHS EN COURS
+   ========================================================= */
+.standings { margin-top: 6px; }
+.waiting-list li.out { opacity: .5; }
+.waiting-list li button { margin-left: auto; }
