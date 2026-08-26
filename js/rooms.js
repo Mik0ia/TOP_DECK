@@ -253,6 +253,84 @@ export async function removePlayerDoc(code, uid) {
   }
 }
 
+// =====================================================================
+// Déroulé d'une partie (phases écrites sur le document de la salle)
+// =====================================================================
+// La salle passe par ces statuts :
+//   "waiting"      -> salle d'attente (lobby)
+//   "deck_select"  -> chaque joueur choisit son deck (15 s)
+//   "ordering"     -> chaque joueur ordonne ses 3 premières cartes (15 s)
+//   "battle"       -> le combat (logique à venir dans une prochaine passe)
+//
+// Les échéances de phase (`phaseEndsAt`) sont des timestamps epoch en
+// millisecondes écrits par l'HÔTE avec SON horloge : les autres clients
+// affichent le chrono en comparant à leur propre Date.now(). Une légère
+// dérive d'horloge entre machines est tolérée pour cette version de
+// base ; c'est l'hôte qui fait foi pour faire avancer les phases (avec
+// une petite marge de grâce, voir js/game.js).
+//
+// Chaque joueur écrit ses propres choix sur SA fiche dans la
+// sous-collection "players" (deckId, deckLocked, shuffledDeck,
+// orderConfirmed) — les règles Firestore l'y autorisent déjà, et
+// l'hôte peut compléter les fiches des joueurs muets (timeout).
+
+export const DECK_PHASE_SECONDS = 15;
+export const ORDER_PHASE_SECONDS = 15;
+
+/**
+ * Lance la partie (réservé à l'hôte dans l'UI). La salle passe en
+ * phase de choix de deck ; les clients présents dans la salle
+ * détectent le changement de statut et basculent vers game.html.
+ */
+export async function launchGame(code) {
+  const roomRef = doc(db, ROOMS, code);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(roomRef);
+    if (!snap.exists()) throw new Error("Cette salle n'existe plus.");
+    const room = snap.data();
+    if (room.status !== "waiting") throw new Error("La partie est déjà lancée.");
+    tx.update(roomRef, {
+      status: "deck_select",
+      phaseEndsAt: Date.now() + DECK_PHASE_SECONDS * 1000,
+      matchups: null,
+      byeUid: null,
+      gameStartedAt: serverTimestamp()
+    });
+  });
+}
+
+/**
+ * Ecrit des données de partie sur la fiche d'un joueur (merge).
+ * Utilisé par le joueur lui-même, ou par l'hôte pour compléter la
+ * fiche d'un joueur qui n'a pas répondu à temps.
+ */
+export async function setPlayerGameData(code, uid, data) {
+  await setDoc(doc(db, ROOMS, code, PLAYERS, uid), data, { merge: true });
+}
+
+/**
+ * Passage en phase d'ordonnancement des cartes, avec les duels tirés
+ * au sort. `matchups` : tableau de paires { a: uid, b: uid }.
+ * `byeUid` : uid du joueur sans adversaire si nombre impair (null sinon).
+ */
+export async function advanceToOrdering(code, matchups, byeUid = null) {
+  await setDoc(
+    doc(db, ROOMS, code),
+    {
+      status: "ordering",
+      matchups,
+      byeUid,
+      phaseEndsAt: Date.now() + ORDER_PHASE_SECONDS * 1000
+    },
+    { merge: true }
+  );
+}
+
+/** Passage au combat proprement dit (placeholder pour l'instant). */
+export async function advanceToBattle(code) {
+  await setDoc(doc(db, ROOMS, code), { status: "battle", phaseEndsAt: null }, { merge: true });
+}
+
 /**
  * Ecoute en temps réel la liste des salles ouvertes (status == waiting).
  */

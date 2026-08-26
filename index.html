@@ -200,6 +200,12 @@
 
     <ul class="player-list" id="playerList"></ul>
 
+    <!-- Bouton de lancement : visible uniquement pour l'hôte, activé
+         quand la salle est pleine (playerCount == maxPlayers). -->
+    <button class="btn btn-gold btn-block" id="btnStartGame" style="display:none;" disabled>
+      En attente de joueurs…
+    </button>
+
     <div class="room-actions">
       <button class="btn btn-outline-gold" id="btnLeaveRoom">Quitter la salle</button>
       <button class="btn btn-danger" id="btnCloseRoom" style="display:none;">Fermer la salle</button>

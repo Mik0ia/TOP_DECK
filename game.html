@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Top Deck! — Combat</title>
+<link rel="icon" href="assets/logo.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Baloo+2:wght@500;600;700;800&display=swap" rel="stylesheet">
+<!-- style.css fournit les design tokens (:root), les boutons et le toast ;
+     game.css contient TOUT le visuel propre à l'environnement de combat.
+     C'est ici (game.html + css/game.css) que tu as le plein contrôle du
+     look de l'arène, sans toucher au lobby. -->
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/game.css">
+</head>
+<body class="game-body">
+
+<!-- Fond : même scène que le lobby mais assombrie façon "projecteurs
+     sur l'arène" (voile supplémentaire défini dans game.css). -->
+<div class="scene" aria-hidden="true">
+  <div class="scene-bg"></div>
+  <div class="scene-veil"></div>
+  <div class="game-veil"></div>
+</div>
+
+<!-- ===================== BANDEAU HAUT ===================== -->
+<header class="game-topbar">
+  <div class="game-room-info">
+    <span class="game-room-name" id="gameRoomName">—</span>
+    <span class="game-phase-label" id="gamePhaseLabel">Préparation…</span>
+  </div>
+
+  <!-- Chrono de phase : étoile BD au centre, alimentée par js/game.js.
+       Masqué quand la phase n'a pas de limite de temps. -->
+  <div class="chrono" id="chrono" style="display:none;">
+    <svg class="chrono-burst" viewBox="0 0 120 120" aria-hidden="true">
+      <polygon points="60,2 71,22 94,12 88,36 112,38 94,54 112,72 88,72 94,98 71,86 60,110 49,86 26,98 32,72 8,72 26,54 8,38 32,36 26,12 49,22"/>
+    </svg>
+    <span class="chrono-num" id="chronoNum">15</span>
+  </div>
+
+  <div class="game-me" id="gameMe"></div>
+</header>
+
+<!-- ===================== SCÈNE DE JEU ===================== -->
+<!-- Tout le contenu des phases (choix de deck, ordre des cartes,
+     arène) est rendu ici par js/game.js. -->
+<main class="game-stage" id="gameStage">
+  <p class="game-loading">Connexion à la partie…</p>
+</main>
+
+<!-- Aperçu agrandi d'une carte (survol / tap), comme dans la boutique -->
+<div class="card-zoom-overlay" id="cardZoomOverlay" aria-hidden="true">
+  <img id="cardZoomImg" src="" alt="">
+</div>
+
+<!-- Abandon : discret, en bas à gauche -->
+<button type="button" class="game-forfeit" id="btnForfeit">Abandonner la partie</button>
+
+<div class="toast" id="toast"></div>
+
+<script type="module" src="js/firebase-config.js"></script>
+<script type="module" src="js/game.js"></script>
+</body>
+</html>

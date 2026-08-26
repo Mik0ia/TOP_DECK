@@ -105,6 +105,30 @@ export const DECK_CATALOG = [
 ];
 
 // -----------------------------------------------------------------
+// Helpers utilisés par la partie (game.html / js/game.js)
+// -----------------------------------------------------------------
+/** Retrouve un deck du catalogue par son id (ou null). */
+export function getDeckById(deckId) {
+  return DECK_CATALOG.find((d) => d.id === deckId) || null;
+}
+
+/**
+ * Un deck est "jouable" en partie si ses 10 cartes sont de VRAIES
+ * cartes du catalogue (js/cards.js), c'est-à-dire qu'elles portent un
+ * `typeId`. Les decks encore composés de placeholders (ex :
+ * deck-ferme tant que ses cartes ne sont pas définies) sont exclus de
+ * la phase de choix de deck en début de partie.
+ */
+export function isDeckPlayable(deck) {
+  return (
+    !!deck &&
+    Array.isArray(deck.cards) &&
+    deck.cards.length === 10 &&
+    deck.cards.every((c) => !!c.typeId && !!CARD_CATALOG[c.typeId])
+  );
+}
+
+// -----------------------------------------------------------------
 // "Cartes du moment" : mise en avant de cartes individuelles dans la
 // boutique. Purement visuel pour l'instant (pas de vente à l'unité
 // tant que le système de cartes/jeu n'existe pas) — de simples

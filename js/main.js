@@ -19,7 +19,8 @@ import {
   removePlayerDoc,
   subscribeOpenRooms,
   subscribeRoom,
-  subscribePlayers
+  subscribePlayers,
+  launchGame
 } from "./rooms.js";
 import { DECK_CATALOG, FEATURED_CARDS } from "./decks.js";
 
@@ -70,6 +71,7 @@ const roomViewMax = document.getElementById("roomViewMax");
 const playerList = document.getElementById("playerList");
 const btnLeaveRoom = document.getElementById("btnLeaveRoom");
 const btnCloseRoom = document.getElementById("btnCloseRoom");
+const btnStartGame = document.getElementById("btnStartGame");
 
 const toastEl = document.getElementById("toast");
 const avatarFileInput = document.getElementById("avatarFileInput");
@@ -85,6 +87,10 @@ let unsubCurrentRoom = null;
 let unsubCurrentPlayers = null;
 let currentRoomCode = null;
 let currentRoomIsHost = false;
+// Vrai pendant la redirection vers game.html : le beforeunload ne doit
+// PAS retirer le joueur de la salle dans ce cas (il "quitte" le lobby
+// mais reste dans la partie).
+let navigatingToGame = false;
 
 const DEFAULT_AVATAR =
   "data:image/svg+xml;utf8," +
@@ -617,6 +623,15 @@ function enterRoomView(code, isHost) {
       exitRoomView({ alreadyGone: true });
       return;
     }
+
+    // La partie a été lancée par l'hôte : tout le monde bascule vers
+    // l'environnement de combat (page dédiée game.html).
+    if (room.status && room.status !== "waiting") {
+      navigatingToGame = true;
+      window.location.href = `game.html?room=${encodeURIComponent(room.id)}`;
+      return;
+    }
+
     roomViewName.textContent = room.name;
     roomViewCode.textContent = room.id;
     roomViewCount.textContent = room.playerCount;
@@ -630,6 +645,19 @@ function enterRoomView(code, isHost) {
       btnCloseRoom.style.display = isNowHost ? "inline-flex" : "none";
       btnLeaveRoom.textContent = isNowHost ? "Quitter (ferme la salle)" : "Quitter la salle";
       if (isNowHost) showToast("Tu es désormais l'hôte de cette salle.");
+    }
+
+    // ---- Bouton "Lancer la partie" (hôte uniquement) ----
+    // Activable uniquement quand la salle est PLEINE.
+    if (currentRoomIsHost) {
+      btnStartGame.style.display = "inline-flex";
+      const full = room.playerCount >= room.maxPlayers;
+      btnStartGame.disabled = !full;
+      btnStartGame.textContent = full
+        ? "Lancer la partie !"
+        : `En attente de joueurs… (${room.playerCount}/${room.maxPlayers})`;
+    } else {
+      btnStartGame.style.display = "none";
     }
   });
 
@@ -655,6 +683,22 @@ function exitRoomView({ alreadyGone } = {}) {
   currentRoomIsHost = false;
   closeModal(modalRoom);
 }
+
+btnStartGame.addEventListener("click", async () => {
+  if (!currentRoomCode || !currentRoomIsHost) return;
+  btnStartGame.disabled = true;
+  btnStartGame.textContent = "Lancement…";
+  try {
+    await launchGame(currentRoomCode);
+    // Pas de redirection ici : le subscribeRoom voit le statut changer
+    // et redirige tout le monde (hôte compris) au même endroit.
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || "Impossible de lancer la partie.", "error");
+    btnStartGame.disabled = false;
+    btnStartGame.textContent = "Lancer la partie !";
+  }
+});
 
 btnLeaveRoom.addEventListener("click", async () => {
   if (!currentRoomCode) return;
@@ -691,6 +735,7 @@ async function leaveCurrentRoomIfAny() {
 
 // Nettoyage best-effort si l'onglet se ferme pendant qu'on est dans une salle.
 window.addEventListener("beforeunload", () => {
+  if (navigatingToGame) return; // le joueur reste dans la partie
   if (currentRoomCode && currentUser) {
     // Best effort — pas garanti, une solution robuste nécessiterait
     // Realtime Database + onDisconnect() ou des Cloud Functions.
