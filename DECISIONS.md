@@ -114,3 +114,11 @@ serait à déplacer.
 ## D10 — Le champion gagne aussi la couronne de sa dernière manche
 
 **2026-08-26 | §4.3.1 + §4.3.7 | En finale, seules les manches comptent au score (premier à 3) ; la couronne de match n'est attribuée qu'une fois, au champion, à la victoire finale | Pourquoi : le brief donne « 1 couronne par match gagné » et une finale en best-of-5 ; compter 1 couronne par manche gonflerait artificiellement le classement final. La simulation vérifie cet invariant sur les 1 000 tournois.**
+
+## D11 — Échecs de permission rendus visibles, sans réessai en boucle
+
+**2026-08-26 | (correctif, pas une règle de jeu) | Un refus Firestore affiche désormais un écran d'erreur en pleine page avec la marche à suivre, et l'hôte cesse de réessayer (backoff exponentiel plafonné, arrêt immédiat sur `permission-denied`) | Pourquoi : lors du premier test réel, les règles n'étaient pas déployées ; la partie restait figée sur « en attente des autres joueurs » sans aucun message, pendant que l'hôte martelait Firestore toutes les 250 ms. Un échec silencieux est pire qu'un échec bruyant.**
+
+## D12 — Garde-fou sur `gameMode` manquant
+
+**2026-08-26 | §4.2 | Si le document de salle n'a pas de `gameMode` valide (salle créée avant l'ajout de l'option), le match démarre en `SURVIE` au lieu d'écrire `mode: undefined` | Pourquoi : Firestore refuse les valeurs `undefined` et la partie aurait planté juste après le choix des decks — exactement au même endroit que le bug de permissions.**

@@ -43,7 +43,7 @@ import {
 } from "./rooms.js";
 import { STARTER_DECK_ID, getDeckById, isDeckPlayable } from "./decks.js";
 import { CARD_CATALOG } from "./cards.js";
-import { playTurn, startingHp } from "./engine/modes.js";
+import { playTurn, startingHp, isValidGameMode } from "./engine/modes.js";
 import {
   resolveRps, isValidRpsMove, RPS_MOVES, hashString, mulberry32, shuffled
 } from "./engine/rps.js";
@@ -98,6 +98,7 @@ let players = [];
 let matches = [];
 
 let renderedKey = null;         // clé de la vue affichée (anti re-rendus destructeurs)
+let fatalError = null;          // erreur bloquante affichée à l'écran (ex : règles Firestore)
 let spectatingMatchId = null;   // match regardé en spectateur (ou null)
 
 // Gardes anti-doubles écritures
@@ -147,6 +148,35 @@ cardZoomOverlay.addEventListener("click", hideCardZoom);
 async function sha256Hex(str) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Affiche une erreur BLOQUANTE en pleine page. Sans ça, un refus de
+ * permission Firestore laisse la partie figée sur "en attente des
+ * autres joueurs" sans que personne comprenne pourquoi.
+ */
+function showFatalError(title, detail, isPermission = false) {
+  if (fatalError) return; // une seule fois
+  fatalError = title;
+  chronoEl.style.display = "none";
+  gamePhaseLabel.textContent = "Erreur";
+  gameStage.innerHTML = `
+    <h2 class="stage-title">${escapeHtml(title)}</h2>
+    <p class="stage-sub">${escapeHtml(detail)}</p>
+    ${isPermission ? `
+      <div class="waiting-panel">
+        <h3>Comment corriger</h3>
+        <ol class="fix-list">
+          <li>Console Firebase → <b>Build → Firestore Database → Règles</b></li>
+          <li>Colle le contenu du fichier <b>firestore.rules</b> du projet (il ajoute la sous-collection <b>matches</b>)</li>
+          <li>Clique sur <b>Publier</b>, puis relance une partie</li>
+        </ol>
+      </div>` : ""}
+    <div class="order-actions">
+      <button type="button" class="btn btn-gold" id="btnFatalBack">Retour au lobby</button>
+    </div>
+  `;
+  document.getElementById("btnFatalBack").addEventListener("click", goToLobby);
 }
 
 function isHost() { return !!room && !!currentUser && room.hostUid === currentUser.uid; }
@@ -243,12 +273,26 @@ function bootGame() {
     hostMaybeAct();
   });
 
-  subscribeMatches(roomCode, (list) => {
-    matches = list;
-    onMatchesUpdated();
-    render();
-    hostMaybeAct();
-  });
+  subscribeMatches(
+    roomCode,
+    (list) => {
+      matches = list;
+      onMatchesUpdated();
+      render();
+      hostMaybeAct();
+    },
+    (err) => {
+      if (err?.code === "permission-denied") {
+        showFatalError(
+          "Règles Firestore incomplètes",
+          "La partie ne peut pas accéder aux matchs (rooms/{code}/matches). Les règles de sécurité doivent être mises à jour.",
+          true
+        );
+      } else {
+        showFatalError("Connexion aux matchs impossible", err?.message || "Erreur inconnue.");
+      }
+    }
+  );
 }
 
 function renderMe() {
@@ -365,6 +409,7 @@ function maybeDeclareForfeit(m) {
 // ===============================================================
 function render() {
   if (!room || !currentUser) return;
+  if (fatalError) return; // l'écran d'erreur reste affiché
 
   // Clé de vue : on ne reconstruit le DOM que si la SITUATION change ;
   // les mises à jour "à chaud" (scores, listes) sont faites par des
@@ -1247,7 +1292,7 @@ function updateLiveMatchesPanel() {
 // s'il part, l'hôte est transféré et le nouvel hôte prend le relais)
 // ===============================================================
 function hostMaybeAct() {
-  if (!isHost() || !room) return;
+  if (!isHost() || !room || fatalError) return;
   if (room.status === "deck_select") hostMaybeInitTournament();
   else if (room.status === "tournament") hostMaybeAdvanceRound();
 }
@@ -1286,13 +1331,42 @@ async function hostMaybeInitTournament() {
     });
   } catch (err) {
     console.error("Initialisation du tournoi impossible :", err);
-    hostDone.delete("init");
+    if (err?.code === "permission-denied") {
+      // Inutile de réessayer : c'est une règle de sécurité, pas un
+      // incident réseau. On l'affiche clairement plutôt que de marteler
+      // Firestore toutes les 250 ms.
+      showFatalError(
+        "Règles Firestore incomplètes",
+        "L'hôte n'a pas le droit de créer les matchs de la partie (rooms/{code}/matches).",
+        true
+      );
+      return;
+    }
+    // Erreur transitoire (réseau) : nouvelle tentative après un délai
+    // croissant, jamais en boucle serrée.
+    hostRetry("init", () => hostDone.delete("init"));
   }
+}
+
+// ---- Réessais espacés (1 s, 2 s, 4 s… plafonné à 15 s) ----
+const hostRetryCounts = new Map();
+function hostRetry(key, resetFn) {
+  const n = (hostRetryCounts.get(key) || 0) + 1;
+  hostRetryCounts.set(key, n);
+  if (n > 6) {
+    showFatalError("Impossible de lancer le round", "Après plusieurs tentatives, la connexion à Firestore échoue toujours.");
+    return;
+  }
+  setTimeout(resetFn, Math.min(15000, 1000 * 2 ** (n - 1)));
 }
 
 async function hostCreateRoundMatches(pairing) {
   const t = pairing.t;
-  const mode = room.gameMode;
+  // Garde-fou : une salle créée AVANT l'ajout du mode de jeu (ou un
+  // champ manquant) donnerait `mode: undefined`, que Firestore REFUSE
+  // d'écrire ("Unsupported field value: undefined") — la partie
+  // planterait juste après le choix des decks.
+  const mode = isValidGameMode(room.gameMode) ? room.gameMode : "SURVIE";
   const hp = startingHp(mode);
   const ids = [];
   for (let i = 0; i < pairing.matches.length; i++) {
@@ -1330,6 +1404,7 @@ async function hostMaybeAdvanceRound() {
   const roundMatches = ids.map((id) => matches.find((m) => m.id === id)).filter(Boolean);
   if (roundMatches.length !== ids.length) return;              // docs pas tous reçus
   if (!roundMatches.every((m) => m.status === "finished")) return;
+  if (!room.tournament) return; // état pas encore reçu
   hostDone.add(roundKey);
 
   try {
@@ -1373,6 +1448,14 @@ async function hostMaybeAdvanceRound() {
     });
   } catch (err) {
     console.error("Passage au round suivant impossible :", err);
-    hostDone.delete(roundKey);
+    if (err?.code === "permission-denied") {
+      showFatalError(
+        "Règles Firestore incomplètes",
+        "L'hôte n'a pas le droit d'écrire les matchs du round suivant (rooms/{code}/matches).",
+        true
+      );
+      return;
+    }
+    hostRetry(roundKey, () => hostDone.delete(roundKey));
   }
 }

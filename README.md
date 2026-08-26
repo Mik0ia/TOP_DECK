@@ -55,13 +55,9 @@ service cloud.firestore {
       allow create: if request.auth != null
                     && request.resource.data.hostUid == request.auth.uid;
       // Mise à jour autorisée pour gérer playerCount / transfert d'hôte
-      // lors des jointures / départs.
+      // lors des jointures / départs, et pour que l'hôte pilote le
+      // tournoi (état, round, matchs du round).
       allow update: if request.auth != null;
-      // Suppression autorisée pour l'hôte, OU pour n'importe quel joueur
-      // authentifié quand il ne reste (au plus) qu'un seul joueur dans la
-      // salle : c'est ce qui permet de fermer automatiquement la salle
-      // quand le dernier joueur la quitte, même s'il n'est pas l'hôte
-      // d'origine.
       allow delete: if request.auth != null
                     && (resource.data.hostUid == request.auth.uid
                         || resource.data.playerCount <= 1);
@@ -71,6 +67,39 @@ service cloud.firestore {
         allow write: if request.auth != null &&
           (request.auth.uid == playerId ||
            get(/databases/$(database)/documents/rooms/$(roomId)).data.hostUid == request.auth.uid);
+      }
+
+      // ---- Matchs (combat & tournoi) ----
+      // Lecture : tous les joueurs authentifiés de la salle — c'est ce
+      // qui permet aux joueurs ÉLIMINÉS de regarder les matchs en cours
+      // (spectate, §4.3.8). La confidentialité des cartes non révélées
+      // est assurée côté application par la projection spectatorView()
+      // et, pour le chi-fou-mi, par le commit-reveal SHA-256
+      // (voir DECISIONS.md, D1 et D6).
+      //
+      // Écriture : réservée aux DEUX participants du match et à l'hôte
+      // (qui crée les documents du round). Un spectateur ne peut donc
+      // strictement rien écrire — c'est la garantie serveur du piège
+      // §8.7 : même un client modifié ne peut pas jouer à la place d'un
+      // participant ni interférer dans un match qui n'est pas le sien.
+      match /matches/{matchId} {
+        allow read: if request.auth != null;
+
+        allow create: if request.auth != null
+                      && get(/databases/$(database)/documents/rooms/$(roomId)).data.hostUid == request.auth.uid;
+
+        allow update: if request.auth != null
+                      && (request.auth.uid == resource.data.a
+                          || request.auth.uid == resource.data.b
+                          || get(/databases/$(database)/documents/rooms/$(roomId)).data.hostUid == request.auth.uid);
+
+        // Suppression : l'hôte, ou n'importe quel joueur quand la salle
+        // se ferme (dernier joueur qui part) — même logique que la
+        // suppression de la salle, pour ne pas laisser de documents
+        // de match orphelins dans la base.
+        allow delete: if request.auth != null
+                      && (get(/databases/$(database)/documents/rooms/$(roomId)).data.hostUid == request.auth.uid
+                          || get(/databases/$(database)/documents/rooms/$(roomId)).data.playerCount <= 1);
       }
     }
   }

@@ -363,12 +363,21 @@ export async function updateMatchDoc(code, matchId, data) {
 }
 
 /** Ecoute en temps réel TOUS les matchs de la salle. */
-export function subscribeMatches(code, callback) {
+export function subscribeMatches(code, callback, onError) {
   const ref = collection(db, ROOMS, code, MATCHES);
-  return onSnapshot(ref, (snap) => {
-    const matches = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    callback(matches);
-  });
+  return onSnapshot(
+    ref,
+    (snap) => {
+      const matches = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      callback(matches);
+    },
+    // Sans ce callback, un refus de permission ne remonte QUE dans la
+    // console : la page reste bloquée sans rien dire au joueur.
+    (err) => {
+      console.error("Ecoute des matchs impossible :", err);
+      if (onError) onError(err);
+    }
+  );
 }
 
 /**

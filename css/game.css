@@ -733,3 +733,16 @@
 .standings { margin-top: 6px; }
 .waiting-list li.out { opacity: .5; }
 .waiting-list li button { margin-left: auto; }
+
+/* Écran d'erreur bloquante (règles Firestore, réseau…) */
+.fix-list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.45;
+}
+.fix-list b { color: var(--yellow); }
