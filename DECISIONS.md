@@ -122,3 +122,31 @@ serait à déplacer.
 ## D12 — Garde-fou sur `gameMode` manquant
 
 **2026-08-26 | §4.2 | Si le document de salle n'a pas de `gameMode` valide (salle créée avant l'ajout de l'option), le match démarre en `SURVIE` au lieu d'écrire `mode: undefined` | Pourquoi : Firestore refuse les valeurs `undefined` et la partie aurait planté juste après le choix des decks — exactement au même endroit que le bug de permissions.**
+
+---
+
+## D13 — Correctif chi-fou-mi : Firestore fusionne les maps imbriquées
+
+**2026-08-27 | §4.2 / §8.9 (le chi-fou-mi ne doit jamais bloquer) | Un nouveau tour de chi-fou-mi réécrit explicitement TOUS ses champs à `null` (`freshRpsRound`) au lieu de n'écrire que `{ round: n+1 }` | Pourquoi : `setDoc(..., { merge: true })` FUSIONNE les maps imbriquées. Les engagements et les coups du tour précédent survivaient donc au nouveau tour : le joueur était vu comme « déjà engagé » (aucun bouton ne réapparaissait) et la résolution rejouait indéfiniment les mêmes coups. Verrouillé par un test qui simule la sémantique de merge de Firestore.**
+
+Ajouté au passage : un coup est tiré au hasard si le chrono du chi-fou-mi expire, comme dans toutes les autres phases.
+
+## D14 — Les decks MUTENT désormais pendant le match
+
+**2026-08-27 | §4.1 (modèle de tour) | Le document de match stocke des decks et des défausses qui évoluent (`aDeck`, `aDiscard`…) ; la carte jouée est toujours celle de l'index 0 | Pourquoi : les effets (`mill_*`, `go_bottom`, `search`, `organize_*`) modifient le contenu et l'ordre des decks. L'ancien modèle indexait un deck figé par le numéro de tour, ce qui devenait faux dès le premier effet. La résolution complète d'un tour vit dans `js/engine/turn.js`, pure et testée.**
+
+## D15 — Effets interactifs : rejeu déterministe plutôt qu'état d'exécution
+
+**2026-08-27 | (nouvelle mécanique) | Les effets qui demandent un choix (`scry`, `organize_own`, `organize_opp`, `search`) n'interrompent pas vraiment l'exécution : le tour est REJOUÉ depuis le début avec la liste des réponses déjà données (`fxAnswers[stepKey]`) | Pourquoi : aucun état d'exécution intermédiaire à sérialiser dans Firestore, et surtout les deux clients rejouent le même tour et obtiennent le même résultat — c'est ce qui permet la vérification croisée (D1) même avec des effets. Les mélanges utilisent un RNG seedé par match+tour pour rester reproductibles.**
+
+## D16 — Comparaisons de texte tolérantes dans les conditions
+
+**2026-08-27 | (mini-langage d'effets) | `card.name == "caillou"` accepte « Caillou », « CAILLOU », « caillou » (casse et accents ignorés) | Pourquoi : c'est l'exemple exact du cahier des charges, écrit en minuscules, alors que la carte s'appelle « Caillou ». Une comparaison stricte aurait échoué silencieusement — le pire des comportements pour un langage de contenu.**
+
+## D17 — Les statistiques ne sont affichées que si un effet les modifie
+
+**2026-08-27 | (interface) | Sur les grandes cartes du centre, les pastilles ATK/DEF n'apparaissent que lorsqu'un effet a changé les valeurs, posées par-dessus les valeurs imprimées sur l'illustration | Pourquoi : les valeurs de base figurent déjà sur l'image de la carte ; les redoubler créait deux nombres côte à côte, illisible.**
+
+## D18 — Récompenses versées une seule fois par partie
+
+**2026-08-27 | (barème pièces/XP) | Le profil garde la liste des 20 dernières parties récompensées (`claimedRewards`) ; recharger l'écran de fin ne re-verse pas les gains | Pourquoi : l'écran de fin peut être rendu plusieurs fois (reconnexion, re-render). Les niveaux servant au calcul sont figés au lancement du tournoi (`tournamentLevels`), sinon les gains changeraient selon le moment où chacun ouvre l'écran.**

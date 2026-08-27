@@ -2,7 +2,7 @@
 
 > Fichier de continuité de session (brief §2). Mis à jour à la fin de chaque bloc.
 
-## Blocs terminés : **B0 → B4** (livraison complète)
+## Blocs terminés : **B0 → B4**, puis passe **B5 — effets, récompenses, plateau**
 
 Toutes les décisions prises sans arbitrage humain sont consignées dans `DECISIONS.md`
 (D1 à D10) — dont **D1**, la décision d'architecture : pas de Cloud Functions, architecture
@@ -13,14 +13,15 @@ client durcie (raisons et limite assumée détaillées dans le fichier).
 ## Comment vérifier (commandes relançables)
 
 ```bash
-npm test          # 37 tests unitaires — critères §9.1, §9.2, §9.3, §9.4 + protocole
+npm test          # 87 tests unitaires (moteur, tournoi, effets, récompenses, protocole)
 npm run simulate  # juge externe §10 : 1 000 tournois, 2 à 16 joueurs, les 4 modes
+npm run cards     # vérifie la syntaxe des effets du catalogue de cartes
 ```
 
 Dernière exécution :
 
 ```
-# tests 37   # pass 37   # fail 0
+# tests 87   # pass 87   # fail 0
 
 ================ RAPPORT ================
 Tournois joués            : 1000
@@ -109,6 +110,27 @@ index.html                    (modifié)  <select> mode de jeu
 css/game.css                  (complété) plateau, chi-fou-mi, classement
 firestore.rules               (nouveau)  règles à copier dans la console Firebase
 ```
+
+## B5 — Effets de cartes, récompenses, refonte du plateau
+
+- **Bug chi-fou-mi corrigé** (voir `DECISIONS.md`, D13) : les égalités relançaient un tour
+  vide et bloquaient le match. Test de non-régression dans `tests/protocol.test.mjs`.
+- **Mini-langage d'effets** : `js/engine/effect-parser.js` (grammaire, validation) et
+  `js/engine/effects.js` (exécution). Déclencheurs `on_play` / `on_death` / `on_seen` ;
+  effets `scry` `mill_own` `mill_opp` `organize_own` `organize_opp` `search` `go_bottom`
+  `gain` `look_top` `look_bot` ; conditions `if … : …` / `else` / `and` / `or` sur
+  `card.*`, `self.*`, `opp.*`, `my.deck_size`… Tests : `tests/effects.test.mjs` (26).
+- **Résolution de tour avec effets** : `js/engine/turn.js` (pur, 10 tests).
+  Les decks mutent désormais (D14) et les choix interactifs utilisent le rejeu
+  déterministe (D15).
+- **Catalogue** : 9 cartes ont un effet d'exemple, une par mécanique. `npm run cards`
+  valide la syntaxe et affiche le résumé.
+- **Récompenses** : `js/engine/rewards.js` (barème 6/4/3/2/2 pièces, XP ×10/×5/×4/×3/×1
+  des niveaux cumulés des adversaires) + versement transactionnel dans `js/auth.js`
+  (`grantRewards`, anti double-versement). Tests : `tests/rewards.test.mjs` (12).
+- **Plateau refondu** : cartes jouées en grand au centre (face cachée dès la pose),
+  animation de mort (impact, balafres, tête de mort, secousse, éclair), défausse en pile
+  face visible et cliquable, modale de choix d'effet.
 
 ## Prochaine étape
 

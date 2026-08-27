@@ -116,3 +116,65 @@ test("protocole : pendant un tour incomplet, la vue spectateur ne contient aucun
   assert.equal(v.lastClash, null);
   assert.ok(!("aDeck" in v) && !("bDeck" in v));
 });
+
+// ---------------------------------------------------------------
+// Régression : chi-fou-mi bloqué sur égalité
+// ---------------------------------------------------------------
+// Cause du bug : Firestore FUSIONNE les maps imbriquées quand on écrit
+// avec { merge: true }. Écrire `rps: { round: 2 }` laissait les
+// engagements et les coups du tour 1 en place → le joueur restait
+// "déjà engagé" (aucun bouton) et la résolution rejouait les mêmes
+// coups en boucle. Le correctif remet TOUS les champs à null.
+
+/** Reproduit la sémantique de merge de Firestore sur les maps. */
+function firestoreMerge(doc, patch) {
+  const out = { ...doc };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v && typeof v === "object" && !Array.isArray(v) && out[k] && typeof out[k] === "object" && !Array.isArray(out[k])) {
+      out[k] = firestoreMerge(out[k], v); // map imbriquée => fusion
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+function freshRpsRound(round) {
+  return { round, startedAt: Date.now(), aHash: null, bHash: null, aChoice: null, bChoice: null, aSalt: null, bSalt: null };
+}
+
+test("régression : un nouveau tour de chi-fou-mi efface bien les coups du tour précédent", () => {
+  const round1 = {
+    rps: { round: 1, startedAt: 1, aHash: "h1", bHash: "h2", aChoice: "pierre", bChoice: "pierre", aSalt: "s1", bSalt: "s2" }
+  };
+  // ❌ L'ancien code écrivait seulement { round, startedAt } :
+  const buggy = firestoreMerge(round1, { rps: { round: 2, startedAt: 2 } });
+  assert.equal(buggy.rps.aChoice, "pierre", "démontre le bug : les coups survivaient à la fusion");
+  assert.equal(buggy.rps.aHash, "h1");
+
+  // ✅ Le correctif remet tout à null :
+  const fixed = firestoreMerge(round1, { rps: freshRpsRound(2) });
+  assert.equal(fixed.rps.round, 2);
+  for (const f of ["aHash", "bHash", "aChoice", "bChoice", "aSalt", "bSalt"]) {
+    assert.equal(fixed.rps[f], null, `${f} doit être effacé au nouveau tour`);
+  }
+});
+
+test("régression : plusieurs égalités d'affilée finissent par désigner un vainqueur", () => {
+  let doc = { rps: freshRpsRound(1) };
+  const scripted = [["pierre", "pierre"], ["feuille", "feuille"], ["ciseaux", "pierre"]];
+  let result = "TIE", guard = 0;
+  for (const [ma, mb] of scripted) {
+    if (++guard > 10) assert.fail("boucle");
+    doc = firestoreMerge(doc, { rps: { aChoice: ma, bChoice: mb } });
+    result = resolveRps(doc.rps.aChoice, doc.rps.bChoice);
+    if (result === "TIE") {
+      doc = firestoreMerge(doc, { rps: freshRpsRound(doc.rps.round + 1) });
+      // Au nouveau tour, les DEUX joueurs peuvent rejouer :
+      assert.equal(doc.rps.aChoice, null);
+      assert.equal(doc.rps.bChoice, null);
+    }
+  }
+  assert.equal(result, "B", "ciseaux perd contre pierre");
+  assert.equal(doc.rps.round, 3, "deux égalités ont bien relancé deux tours");
+});

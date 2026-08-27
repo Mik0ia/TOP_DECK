@@ -511,166 +511,383 @@
 }
 
 /* =========================================================
-   PLATEAU DE COMBAT (match en cours)
+   PLATEAU DE COMBAT — le centre est la vedette
    ---------------------------------------------------------
-   Disposition : adversaire en haut, zone de clash au centre,
-   toi en bas. Les cartes en attente sont face cachée tant
-   que les deux joueurs n'ont pas joué.
+   Les cartes jouées descendent AU CENTRE, en grand : c'est
+   la base du jeu. Les camps (avatar, pioche, défausse)
+   restent en périphérie, plus discrets.
    ========================================================= */
 .board {
   position: relative;
-  width: min(920px, 96vw);
+  width: min(960px, 96vw);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .board-side {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 14px;
-  background: rgba(6, 24, 70, .72);
-  border: 4px solid var(--outline);
+  gap: 12px;
+  background: rgba(6, 24, 70, .6);
+  border: 3px solid var(--outline);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-comic);
-  padding: 10px 16px;
+  padding: 8px 14px;
 }
-.board-top { border-top-color: var(--red); }
-.board-bottom { border-bottom-color: var(--yellow); }
+.board-top { border-top: 5px solid var(--red); }
+.board-bottom { border-bottom: 5px solid var(--yellow); }
 
 .board-avatar {
-  width: 52px;
-  height: 52px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: 3px solid var(--outline);
   object-fit: cover;
   background: var(--bg-1);
   flex-shrink: 0;
 }
-.board-info {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
+.board-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .board-name {
   font-family: var(--font-display);
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   letter-spacing: .04em;
   color: var(--paper);
   text-shadow: 2px 2px 0 var(--outline);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.board-stats {
-  font-weight: 800;
-  font-size: .9rem;
-  color: var(--yellow);
-}
+.board-stats { font-weight: 800; font-size: .85rem; color: var(--yellow); }
 
 /* Pioche & défausse */
-.board-piles { display: flex; gap: 10px; flex-shrink: 0; }
-.pile { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.board-piles { display: flex; gap: 10px; flex-shrink: 0; align-items: flex-start; }
+.pile {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: none; border: none; padding: 0; font: inherit;
+}
 .pile-back {
-  width: 42px;
-  height: 58px;
-  border: 3px solid var(--outline);
-  border-radius: 7px;
+  width: 40px; height: 56px;
+  border: 3px solid var(--outline); border-radius: 7px;
   background: radial-gradient(circle at 50% 40%, var(--blue) 0%, var(--blue-deep) 70%);
-  display: grid;
-  place-items: center;
+  display: grid; place-items: center;
 }
-.pile-back img { width: 26px; opacity: .95; }
-.pile-discard::before {
-  content: "";
-  width: 42px;
-  height: 58px;
-  border: 3px dashed var(--ink-faint);
-  border-radius: 7px;
-  display: block;
-  opacity: .5;
-}
-.pile-count { font-size: .75rem; font-weight: 800; color: var(--ink-dim); }
+.pile-back img { width: 24px; opacity: .95; }
+.pile-count { font-size: .72rem; font-weight: 800; color: var(--ink-dim); }
 
-/* Emplacement de la carte jouée ce tour */
-.played-slot { flex-shrink: 0; width: 78px; display: grid; place-items: center; }
+/* Défausse : pile FACE VISIBLE et cliquable */
+.pile-discard { cursor: pointer; transition: transform .12s; }
+.pile-discard:hover { transform: translateY(-3px); }
+.pile-discard:focus-visible { outline: 3px solid var(--yellow); border-radius: 8px; }
+.pile-top {
+  width: 40px; height: 56px;
+  display: grid; place-items: center;
+  border-radius: 7px;
+  /* Effet "pile" : deux bords décalés derrière la carte du dessus */
+  box-shadow: 3px 3px 0 rgba(11, 10, 40, .5), 6px 6px 0 rgba(11, 10, 40, .3);
+}
+.pile-top .mini-card { width: 40px; border-width: 2px; }
+.pile-empty {
+  width: 40px; height: 56px;
+  display: grid; place-items: center;
+  border: 2px dashed var(--ink-faint); border-radius: 7px;
+  font-size: .6rem; color: var(--ink-faint); opacity: .7;
+}
 
 .mini-card {
-  position: relative;
-  width: 74px;
-  border: 3px solid var(--outline);
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--bg-0);
-  box-shadow: var(--shadow-comic);
+  position: relative; width: 74px;
+  border: 3px solid var(--outline); border-radius: 8px;
+  overflow: hidden; background: var(--bg-0);
 }
 .mini-card img { width: 100%; display: block; }
 .mini-card-stats {
-  position: absolute;
-  bottom: 2px;
-  right: 3px;
-  font-weight: 800;
-  font-size: .7rem;
-  color: var(--paper);
-  background: rgba(11, 10, 40, .78);
-  border-radius: 5px;
-  padding: 0 4px;
-}
-.mini-card-back {
-  background: radial-gradient(circle at 50% 40%, var(--blue) 0%, var(--blue-deep) 70%);
-  display: grid;
-  place-items: center;
-  height: 104px;
-}
-.mini-card-back img { width: 42px; opacity: .95; }
-.mini-card-empty {
-  height: 104px;
-  border-style: dashed;
-  border-color: var(--ink-faint);
-  box-shadow: none;
-  opacity: .45;
+  position: absolute; bottom: 2px; right: 3px;
+  font-weight: 800; font-size: .68rem; color: var(--paper);
+  background: rgba(11, 10, 40, .8); border-radius: 5px; padding: 0 4px;
 }
 
-/* Zone centrale : dernier clash révélé */
-.clash-zone {
+/* ---------------------------------------------------------
+   ZONE CENTRALE
+   --------------------------------------------------------- */
+.battlefield {
   width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 12px 10px;
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(ellipse 60% 70% at 50% 50%, rgba(90, 170, 255, .18) 0%, rgba(6, 24, 70, 0) 70%);
 }
 .clash-mode {
-  font-size: .8rem;
-  font-weight: 800;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  color: var(--ink-dim);
+  font-size: .78rem; font-weight: 800; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-dim);
 }
-.clash-cards { display: flex; align-items: center; gap: 18px; min-height: 110px; }
-.clash-hint { color: var(--ink-faint); font-size: .85rem; }
-.clash-card { position: relative; transition: opacity .2s; }
-.clash-card.dead { opacity: .5; }
-.clash-card .skull {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-size: 2.4rem;
-  filter: drop-shadow(2px 2px 0 var(--outline));
+.battle-row {
+  display: flex; align-items: center; justify-content: center;
+  gap: clamp(16px, 4vw, 48px);
+  min-height: 300px;
 }
-.clash-vs {
-  font-family: var(--font-display);
-  font-size: 1.8rem;
-  color: var(--red);
-  text-shadow: 2px 2px 0 var(--outline);
+.battle-hint {
+  margin: 0; min-height: 1.2em;
+  font-weight: 700; color: var(--ink-dim); text-align: center;
 }
 
-.btn-play { min-width: 220px; }
+/* GRANDE carte : la vedette du plateau */
+.big-card {
+  position: relative;
+  width: clamp(150px, 19vw, 210px);
+  border: 5px solid var(--outline);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--bg-0);
+  box-shadow: var(--shadow-comic-lg);
+  transition: transform .3s, opacity .3s, filter .3s;
+}
+.big-card img { width: 100%; display: block; }
+.big-card-back {
+  aspect-ratio: 3 / 4;
+  background: radial-gradient(circle at 50% 40%, var(--blue) 0%, var(--blue-deep) 75%);
+  display: grid; place-items: center;
+}
+.big-card-back img { width: 46%; opacity: .95; }
+.big-card-empty {
+  aspect-ratio: 3 / 4;
+  border-style: dashed; border-color: var(--ink-faint);
+  box-shadow: none; opacity: .35;
+  display: grid; place-items: center;
+  color: var(--ink-faint); font-size: 2rem;
+}
+
+/* Statistiques MODIFIÉES par un effet.
+   Les valeurs de base sont déjà imprimées sur l'illustration : on ne
+   les redouble pas. On n'affiche ces pastilles QUE si un effet a changé
+   l'attaque ou la défense, et on les pose exactement par-dessus les
+   valeurs d'origine pour que la lecture reste au même endroit. */
+.big-card-stats { display: none; }
+.big-card-stats.buffed { display: block; }
+.big-card-stats.buffed .bc-atk,
+.big-card-stats.buffed .bc-def {
+  position: absolute;
+  bottom: 5.5%;
+  width: 22%;
+  aspect-ratio: 1;
+  display: grid; place-items: center;
+  font-family: var(--font-display);
+  font-size: clamp(1.1rem, 2.4vw, 1.6rem);
+  color: var(--paper);
+  border: 3px solid var(--outline);
+  box-shadow: var(--shadow-comic);
+  animation: buff-pop .45s ease-out;
+}
+.big-card-stats.buffed .bc-atk {
+  left: 4%;
+  background: var(--red);
+  transform: rotate(45deg);
+}
+/* Le losange est tourné : on redresse le chiffre à l'intérieur. */
+.big-card-stats.buffed .bc-atk .bc-num { transform: rotate(-45deg); }
+.big-card-stats.buffed .bc-def {
+  right: 4%;
+  background: var(--blue);
+  border-radius: 50%;
+}
+.big-card-buff {
+  position: absolute; top: 8px; right: 8px;
+  background: var(--yellow); color: var(--blue-ink);
+  border: 3px solid var(--outline); border-radius: 999px;
+  padding: 2px 10px; font-weight: 800; font-size: .8rem;
+  box-shadow: var(--shadow-comic);
+  animation: buff-pop .45s ease-out;
+}
+@keyframes buff-pop {
+  from { transform: scale(0) rotate(-25deg); }
+  70%  { transform: scale(1.25) rotate(6deg); }
+  to   { transform: scale(1) rotate(0); }
+}
+
+/* Carte gagnante : elle avance, elle bombe le torse */
+.big-card.is-winner { transform: scale(1.05); box-shadow: 0 0 0 4px var(--yellow), var(--shadow-comic-lg); }
+
+/* --------- MORT D'UNE CARTE : l'animation demandée --------- */
+.big-card.is-dead {
+  animation: card-death .9s ease-in forwards;
+  filter: grayscale(.85) brightness(.6);
+}
+@keyframes card-death {
+  0%   { transform: scale(1) rotate(0); }
+  12%  { transform: scale(1.08) rotate(-3deg); }   /* impact */
+  28%  { transform: scale(.97) rotate(4deg); }
+  60%  { transform: scale(.93) rotate(-6deg) translateY(10px); }
+  100% { transform: scale(.88) rotate(-10deg) translateY(26px); opacity: .55; }
+}
+.big-card-skull {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  font-size: clamp(3.5rem, 8vw, 5.5rem);
+  filter: drop-shadow(3px 3px 0 var(--outline));
+  animation: skull-in .5s .15s both;
+}
+@keyframes skull-in {
+  from { transform: scale(0) rotate(-40deg); opacity: 0; }
+  60%  { transform: scale(1.3) rotate(8deg); opacity: 1; }
+  to   { transform: scale(1) rotate(0); opacity: 1; }
+}
+/* Balafres façon coup d'épée */
+.slash {
+  position: absolute; top: 50%; left: -10%;
+  width: 120%; height: 8px;
+  background: linear-gradient(90deg, transparent, var(--paper) 20%, var(--red-light) 50%, var(--paper) 80%, transparent);
+  box-shadow: 0 0 12px var(--red-light);
+  transform-origin: center;
+  opacity: 0;
+}
+.slash-1 { animation: slash-go .35s .05s both; transform: rotate(-28deg); }
+.slash-2 { animation: slash-go .35s .22s both; transform: rotate(24deg); }
+@keyframes slash-go {
+  0%   { opacity: 0; transform: scaleX(0) rotate(var(--r, -28deg)); }
+  40%  { opacity: 1; }
+  100% { opacity: 0; transform: scaleX(1.1); }
+}
+
+.battle-vs {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  color: var(--red);
+  text-shadow: 3px 3px 0 var(--outline);
+  transform: rotate(-8deg);
+}
+.battle-vs.vs-hit { animation: vs-hit .5s ease-out; }
+@keyframes vs-hit {
+  0%   { transform: rotate(-8deg) scale(1); color: var(--red); }
+  30%  { transform: rotate(-8deg) scale(1.6); color: var(--yellow); }
+  100% { transform: rotate(-8deg) scale(1); color: var(--red); }
+}
+
+/* Éclair lumineux au moment du choc */
+.battlefield.clash-anim::before {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: var(--radius-md);
+  background: radial-gradient(circle at 50% 50%, rgba(255, 255, 255, .5), transparent 60%);
+  animation: flash .4s ease-out;
+  pointer-events: none;
+}
+@keyframes flash { from { opacity: 1; } to { opacity: 0; } }
+.battlefield { position: relative; }
+.battlefield.shake { animation: shake .32s; }
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-9px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-5px); }
+  80% { transform: translateX(3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .big-card.is-dead, .big-card-skull, .slash, .battle-vs.vs-hit,
+  .battlefield.clash-anim::before, .battlefield.shake, .big-card-buff {
+    animation: none !important;
+  }
+  .big-card.is-dead { transform: scale(.9) rotate(-6deg); }
+}
+
+.btn-play { min-width: 240px; }
 .btn-sm { padding: 4px 12px; font-size: .8rem; }
+
+/* =========================================================
+   MODALES : choix d'effet & défausse
+   ========================================================= */
+.choice-overlay {
+  position: fixed; inset: 0; z-index: 40;
+  background: rgba(4, 12, 40, .86);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.choice-box {
+  background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
+  border: 4px solid var(--outline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-comic-lg);
+  padding: 22px 26px;
+  max-width: min(760px, 94vw);
+  max-height: 88vh; overflow-y: auto;
+  text-align: center;
+}
+.choice-box h3 {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: 1.5rem; letter-spacing: .05em;
+  color: var(--yellow); text-shadow: 2px 2px 0 var(--outline);
+}
+.choice-help { margin: 0 0 14px; color: var(--ink-dim); font-weight: 600; font-size: .9rem; }
+.choice-cards { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; margin-bottom: 16px; }
+.choice-card {
+  position: relative; width: 128px; cursor: pointer;
+  border: 4px solid var(--outline); border-radius: 10px;
+  overflow: hidden; background: var(--bg-0);
+  box-shadow: var(--shadow-comic);
+  transition: transform .12s;
+}
+.choice-card:hover { transform: translateY(-4px); }
+.choice-card.picked { outline: 4px solid var(--yellow); outline-offset: 2px; }
+.choice-card img { width: 100%; display: block; }
+.choice-card-stats {
+  position: absolute; bottom: 3px; right: 4px;
+  font-weight: 800; font-size: .75rem; color: var(--paper);
+  background: rgba(11, 10, 40, .8); border-radius: 5px; padding: 0 5px;
+}
+.choice-badge {
+  position: absolute; top: -10px; left: 50%;
+  transform: translateX(-50%) rotate(-5deg);
+  width: 34px; height: 34px; display: grid; place-items: center;
+  background: var(--yellow); color: var(--blue-ink);
+  border: 3px solid var(--outline); border-radius: 50%;
+  font-family: var(--font-display); font-size: 1.2rem;
+  box-shadow: var(--shadow-comic);
+  opacity: 0; transition: opacity .12s;
+}
+.choice-card.picked .choice-badge { opacity: 1; }
+
+.discard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
+  gap: 8px; margin-bottom: 16px;
+  max-height: 46vh; overflow-y: auto;
+}
+
+/* =========================================================
+   RÉCOMPENSES DE FIN DE TOURNOI
+   ========================================================= */
+.reward-box {
+  width: min(420px, 92vw);
+  margin: 0 auto;
+  background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
+  border: 4px solid var(--outline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-comic-lg);
+  padding: 16px 20px;
+  text-align: center;
+}
+.reward-rank {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-size: 1.6rem; letter-spacing: .05em;
+  color: var(--blue-ink); background: var(--yellow);
+  border: 3px solid var(--outline); border-radius: 999px;
+  padding: 2px 22px; box-shadow: var(--shadow-comic);
+  transform: rotate(-2deg);
+}
+.reward-gains {
+  display: flex; justify-content: center; gap: 22px; margin: 12px 0 6px;
+  font-family: var(--font-display); font-size: 1.7rem;
+}
+.reward-coin { color: var(--yellow); text-shadow: 2px 2px 0 var(--outline); }
+.reward-xp { color: var(--blue-light); text-shadow: 2px 2px 0 var(--outline); }
+.reward-detail { margin: 0; font-size: .8rem; color: var(--ink-faint); }
+.reward-status { margin: 8px 0 0; font-weight: 800; color: var(--ink-dim); }
+.reward-status.levelup {
+  color: var(--yellow); font-size: 1.1rem;
+  animation: buff-pop .5s ease-out;
+}
 
 /* =========================================================
    CHI-FOU-MI (départage d'égalité)

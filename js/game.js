@@ -43,7 +43,10 @@ import {
 } from "./rooms.js";
 import { STARTER_DECK_ID, getDeckById, isDeckPlayable } from "./decks.js";
 import { CARD_CATALOG } from "./cards.js";
-import { playTurn, startingHp, isValidGameMode } from "./engine/modes.js";
+import { startingHp, isValidGameMode } from "./engine/modes.js";
+import { resolveFullTurn } from "./engine/turn.js";
+import { computeRewards } from "./engine/rewards.js";
+import { grantRewards } from "./auth.js";
 import {
   resolveRps, isValidRpsMove, RPS_MOVES, hashString, mulberry32, shuffled
 } from "./engine/rps.js";
@@ -216,17 +219,6 @@ function myRoleIn(match) {
 }
 function otherRole(role) { return role === "a" ? "b" : "a"; }
 
-/** Etat moteur extrait d'un document de match. */
-function engineState(match) {
-  return {
-    mode: match.mode,
-    turn: match.turn,
-    points: match.points,
-    hp: match.hp,
-    cardsLeft: match.cardsLeft,
-    discard: match.discard
-  };
-}
 
 // ---------------------------------------------------------------
 // Démarrage : auth -> abonnements salle + joueurs + matchs
@@ -370,6 +362,11 @@ function onTick() {
     if (m && m.status === "playing") {
       const turnDeadline = (m.turnStartedAt || 0) + TURN_SECONDS * 1000;
       if (Date.now() >= turnDeadline) autoPlayMyCard(m);
+      // Un choix d'effet qui traîne ne doit pas bloquer la partie.
+      if (choiceState && Date.now() >= turnDeadline + FORFEIT_GRACE_MS / 2) autoAnswerChoice();
+    }
+    if (m && m.status === "rps" && m.rps?.startedAt && Date.now() >= m.rps.startedAt + RPS_SECONDS * 1000) {
+      autoChooseRps(m);
     }
     maybeDeclareForfeit(m);
   }
@@ -814,35 +811,60 @@ function maybeResolveTurn(m) {
   if (!role) return;
   if ((m.aPlayed || 0) <= m.turn || (m.bPlayed || 0) <= m.turn) return;
   const key = `${m.id}:${m.turn}`;
+
+  // Le tour est rejoué depuis le début à chaque fois, avec les réponses
+  // déjà données aux effets interactifs (voir js/engine/turn.js).
+  const seed = hashString(`${roomCode}:${m.id}:${m.turn}`);
+  const outcome = resolveFullTurn(CARD_CATALOG, m, m.fxAnswers || {}, seed);
+
+  // ---- Un effet attend un choix ----
+  if (outcome.status === "waiting") {
+    // Seul le joueur concerné répond ; l'autre patiente.
+    if (outcome.side === role) {
+      openChoiceModal(m, outcome);
+    } else {
+      closeChoiceModal();
+    }
+    // L'arbitre publie la demande pour que l'adversaire sache qu'on
+    // attend quelqu'un (affichage "l'adversaire réfléchit…").
+    if (role === "a" && m.pendingChoice?.stepKey !== outcome.stepKey) {
+      updateMatchDoc(roomCode, m.id, {
+        pendingChoice: { stepKey: outcome.stepKey, side: outcome.side, kind: outcome.request.kind }
+      }).catch(console.error);
+    }
+    return;
+  }
+
+  closeChoiceModal();
   if (resolvedTurns.has(key)) return;
 
   const doResolve = () => {
     if (resolvedTurns.has(key)) return;
     resolvedTurns.add(key);
-    const cardA = CARD_CATALOG[m.aDeck[m.turn]];
-    const cardB = CARD_CATALOG[m.bDeck[m.turn]];
-    const { state, clash, end } = playTurn(engineState(m), cardA, cardB);
+    const res = outcome.result;
     const payload = {
-      turn: state.turn,
-      points: state.points,
-      hp: state.hp,
-      cardsLeft: state.cardsLeft,
-      discard: state.discard,
-      lastClash: {
-        aCard: m.aDeck[m.turn], bCard: m.bDeck[m.turn],
-        aKillsB: clash.aKillsB, bKillsA: clash.bKillsA
-      },
+      turn: res.turn,
+      points: res.points,
+      hp: res.hp,
+      aDeck: res.decks.a,
+      bDeck: res.decks.b,
+      aDiscard: res.discards.a,
+      bDiscard: res.discards.b,
+      cardsLeft: res.cardsLeft,
+      discard: res.discardCounts,
+      lastClash: res.clash,
+      pendingChoice: null,
       turnStartedAt: Date.now()
     };
-    if (end.ended) {
-      if (end.winner === "TIE") {
+    if (res.end.ended) {
+      if (res.end.winner === "TIE") {
         // Jamais de match nul : chi-fou-mi (brief §4.2).
         payload.status = "rps";
-        payload.rps = { round: 1, startedAt: Date.now() };
+        payload.rps = freshRpsRound(1);
       } else {
         payload.status = "finished";
-        payload.winner = end.winner === "A" ? m.a : m.b;
-        payload.endReason = end.reason;
+        payload.winner = res.end.winner === "A" ? m.a : m.b;
+        payload.endReason = res.end.reason;
       }
     }
     updateMatchDoc(roomCode, m.id, payload).catch((e) => { resolvedTurns.delete(key); console.error(e); });
@@ -864,11 +886,146 @@ function maybeResolveTurn(m) {
 }
 
 // ===============================================================
+// CHOIX D'EFFET (scry, organize, search)
+// ===============================================================
+// Le joueur clique sur les cartes pour les sélectionner / les ordonner,
+// puis valide : sa réponse est écrite dans `fxAnswers[stepKey]` et la
+// résolution du tour repart automatiquement.
+let choiceState = null; // { stepKey, kind, cards, picked: [index] }
+
+function openChoiceModal(m, outcome) {
+  const { request, stepKey: key } = outcome;
+  if (choiceState?.stepKey === key) return; // déjà ouvert
+  choiceState = { stepKey: key, kind: request.kind, cards: request.cards, picked: [], matchId: m.id };
+  renderChoiceModal();
+}
+
+function closeChoiceModal() {
+  if (!choiceState) return;
+  choiceState = null;
+  document.getElementById("choiceOverlay")?.remove();
+}
+
+const CHOICE_TEXTS = {
+  scry: {
+    title: "Sonder",
+    help: "Clique sur les cartes à renvoyer SOUS ton deck (dans l'ordre). Laisse vide pour tout garder en place.",
+    confirm: "Valider"
+  },
+  organize_own: {
+    title: "Réorganiser ton deck",
+    help: "Clique sur les cartes dans l'ordre où tu veux les remettre sur le dessus de TON deck.",
+    confirm: "Confirmer l'ordre"
+  },
+  organize_opp: {
+    title: "Réorganiser le deck adverse",
+    help: "Clique sur les cartes dans l'ordre où tu veux les remettre sur le dessus du deck ADVERSE.",
+    confirm: "Confirmer l'ordre"
+  },
+  search: {
+    title: "Chercher dans ton deck",
+    help: "Choisis les cartes à mettre sur le dessus (dans l'ordre). Le reste du deck sera mélangé.",
+    confirm: "Valider ma recherche"
+  }
+};
+
+function renderChoiceModal() {
+  if (!choiceState) return;
+  const texts = CHOICE_TEXTS[choiceState.kind] || { title: "Effet", help: "", confirm: "Valider" };
+  let overlay = document.getElementById("choiceOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.className = "choice-overlay";
+    overlay.id = "choiceOverlay";
+    document.body.appendChild(overlay);
+  }
+  const needsAll = choiceState.kind === "organize_own" || choiceState.kind === "organize_opp";
+  overlay.innerHTML = `
+    <div class="choice-box">
+      <h3>${escapeHtml(texts.title)}</h3>
+      <p class="choice-help">${escapeHtml(texts.help)}</p>
+      <div class="choice-cards">
+        ${choiceState.cards.map((typeId, i) => {
+          const c = CARD_CATALOG[typeId];
+          const pos = choiceState.picked.indexOf(i);
+          return `
+            <div class="choice-card ${pos >= 0 ? "picked" : ""}" data-index="${i}">
+              <span class="choice-badge">${pos >= 0 ? pos + 1 : ""}</span>
+              <img src="${escapeAttr(c.image)}" alt="${escapeAttr(c.name)}">
+              <span class="choice-card-stats">${c.attack}/${c.defense}</span>
+            </div>`;
+        }).join("")}
+      </div>
+      <button type="button" class="btn btn-gold" id="btnChoiceConfirm">${escapeHtml(texts.confirm)}</button>
+    </div>
+  `;
+  overlay.querySelectorAll(".choice-card").forEach((el) => {
+    el.addEventListener("click", () => {
+      const i = Number(el.dataset.index);
+      const at = choiceState.picked.indexOf(i);
+      // Même logique que l'ordre des 3 cartes : re-cliquer désassigne
+      // et les positions suivantes reculent d'un cran.
+      if (at >= 0) choiceState.picked.splice(at, 1);
+      else choiceState.picked.push(i);
+      renderChoiceModal();
+    });
+  });
+  const btn = document.getElementById("btnChoiceConfirm");
+  btn.disabled = needsAll && choiceState.picked.length !== choiceState.cards.length;
+  btn.addEventListener("click", submitChoice);
+}
+
+async function submitChoice() {
+  if (!choiceState) return;
+  const { matchId, stepKey: key, picked } = choiceState;
+  const m = matches.find((x) => x.id === matchId);
+  if (!m) return closeChoiceModal();
+  const answers = { ...(m.fxAnswers || {}) };
+  answers[key] = [...(answers[key] || []), picked];
+  closeChoiceModal();
+  try {
+    await updateMatchDoc(roomCode, matchId, { fxAnswers: answers, pendingChoice: null });
+  } catch (err) {
+    console.error(err);
+    showToast("Impossible d'enregistrer ton choix, réessaie.", "error");
+  }
+}
+
+/** Chrono écoulé pendant un choix d'effet : réponse vide (aucun changement). */
+function autoAnswerChoice() {
+  if (!choiceState) return;
+  showToast("Temps écoulé ! Effet passé.");
+  choiceState.picked = choiceState.kind.startsWith("organize")
+    ? choiceState.cards.map((_, i) => i) // ordre inchangé
+    : [];
+  submitChoice();
+}
+
+// ===============================================================
 // CHI-FOU-MI (commit-reveal SHA-256 — pièges §8.1/§8.9)
 // ===============================================================
 // 1. Chaque joueur écrit d'abord HASH(choix|sel) — le choix ne circule
 //    pas. 2. Quand les DEUX hashs sont posés, chacun révèle choix + sel.
 // 3. Résolution : hashs vérifiés, égalité => nouveau tour, jamais de nul.
+/**
+ * Objet d'un NOUVEAU tour de chi-fou-mi.
+ * ⚠️ Tous les champs doivent être remis explicitement à `null` :
+ * `updateMatchDoc` écrit avec `{ merge: true }`, et Firestore FUSIONNE
+ * les maps imbriquées. Écrire seulement `{ round: n+1 }` laisserait les
+ * engagements et les coups du tour précédent en place — le joueur était
+ * alors considéré comme "déjà engagé" (les boutons ne revenaient pas) et
+ * la résolution rejouait les mêmes coups en boucle : match bloqué.
+ */
+function freshRpsRound(round) {
+  return {
+    round,
+    startedAt: Date.now(),
+    aHash: null, bHash: null,
+    aChoice: null, bChoice: null,
+    aSalt: null, bSalt: null
+  };
+}
+
 function rpsLocalKey(matchId, round) { return `topdeck:rps:${roomCode}:${matchId}:${round}:${myUid()}`; }
 
 async function chooseRps(m, move) {
@@ -880,6 +1037,15 @@ async function chooseRps(m, move) {
   const hash = await sha256Hex(`${move}|${salt}`);
   try { sessionStorage.setItem(rpsLocalKey(m.id, round), JSON.stringify({ move, salt })); } catch (e) {}
   await updateMatchDoc(roomCode, m.id, { rps: { ...(m.rps || {}), [`${role}Hash`]: hash } });
+}
+
+/** Chrono écoulé : coup tiré au hasard (comme les autres phases). */
+function autoChooseRps(m) {
+  const role = myRoleIn(m);
+  if (!role || m.status !== "rps" || m.rps?.[`${role}Hash`]) return;
+  const move = RPS_MOVES[Math.floor(Math.random() * RPS_MOVES.length)];
+  showToast(`Temps écoulé ! ${RPS_EMOJI[move]} joué au hasard.`);
+  chooseRps(m, move).catch(console.error);
 }
 
 /** Révélation (automatique) quand les deux engagements sont posés. */
@@ -918,14 +1084,14 @@ async function maybeResolveRps(m) {
       if (aOk !== bOk) {
         payload = { status: "finished", winner: aOk ? m.a : m.b, endReason: "RPS_INVALID" };
       } else {
-        payload = { rps: { round: round + 1, startedAt: Date.now() }, rpsLastResult: { round, result: "INVALID" } };
+        payload = { rps: freshRpsRound(round + 1), rpsLastResult: { round, result: "INVALID" } };
       }
     } else {
       const result = resolveRps(aChoice, bChoice);
       const last = { round, aChoice, bChoice, result };
       if (result === "TIE") {
         // Égalité => on REJOUE, ça ne termine jamais le match (§8.9).
-        payload = { rps: { round: round + 1, startedAt: Date.now() }, rpsLastResult: last };
+        payload = { rps: freshRpsRound(round + 1), rpsLastResult: last };
       } else {
         payload = { status: "finished", winner: result === "A" ? m.a : m.b, endReason: "RPS", rpsLastResult: last };
       }
@@ -953,10 +1119,9 @@ function participantBoardData(m) {
     topUid: m[opp], bottomUid: m[role],
     topRole: opp, bottomRole: role,
     myRole: role,
-    // Ma carte est visible POUR MOI dès que je l'ai jouée ; celle de
-    // l'adversaire reste face cachée tant que la révélation n'a pas eu
-    // lieu (le clash n'apparaît que lorsque les deux ont joué).
-    bottomPending: myPlayed ? m[`${role}Deck`]?.[m.turn] || null : null,
+    // Ma carte posée au centre : je la vois (c'est la mienne) ; celle
+    // de l'adversaire reste face cachée jusqu'à la révélation.
+    bottomPending: myPlayed ? (m[`${role}Deck`]?.[0] ?? null) : null,
     topPending: null,
     topPendingBack: oppPlayed,
     bottomPendingBack: false,
@@ -969,7 +1134,7 @@ function spectatorBoardData(m) {
   // Le spectateur ne voit QUE la projection publique (js/engine/spectate.js).
   const v = spectatorView(m);
   return {
-    match: { ...v, aDeck: null, bDeck: null },
+    match: { ...v, aDeck: null, bDeck: null, aDiscard: m.aDiscard || [], bDiscard: m.bDiscard || [] },
     topUid: v.a, bottomUid: v.b,
     topRole: "a", bottomRole: "b",
     myRole: null,
@@ -999,38 +1164,44 @@ function boardHtml(d) {
   const finalScore = M.isFinal && tournament()?.finalScore
     ? ` · Finale ${Object.entries(tournament().finalScore).map(([u, s]) => `${escapeHtml(playerName(u))} ${s}`).join(" — ")}`
     : "";
+  // Un camp = avatar + stats + pioche + défausse. Les cartes JOUÉES ne
+  // sont plus dans le camp : elles descendent au centre, en grand.
+  const sideHtml = (uid, pos) => `
+    <div class="board-side board-${pos}">
+      <img class="board-avatar" src="${escapeAttr(playerPhoto(uid))}" alt="">
+      <div class="board-info">
+        <span class="board-name">${pos === "bottom" && !d.spect ? "Toi" : escapeHtml(playerName(uid))}</span>
+        <span class="board-stats" id="stats${pos}"></span>
+      </div>
+      <div class="board-piles">
+        <div class="pile" title="Pioche">
+          <div class="pile-back"><img src="assets/logo.png" alt=""></div>
+          <span class="pile-count" id="deck${pos}"></span>
+        </div>
+        <button type="button" class="pile pile-discard" id="discard${pos}" title="Voir la défausse">
+          <div class="pile-top" id="discardTop${pos}"></div>
+          <span class="pile-count" id="discardCount${pos}"></span>
+        </button>
+      </div>
+    </div>
+  `;
+
   return `
     <div class="board" id="board">
-      <div class="board-side board-top">
-        <img class="board-avatar" src="${escapeAttr(playerPhoto(d.topUid))}" alt="">
-        <div class="board-info">
-          <span class="board-name">${escapeHtml(playerName(d.topUid))}</span>
-          <span class="board-stats" id="statsTop"></span>
-        </div>
-        <div class="board-piles">
-          <div class="pile"><div class="pile-back"><img src="assets/logo.png" alt=""></div><span class="pile-count" id="deckTop"></span></div>
-          <div class="pile pile-discard"><span class="pile-count" id="discardTop"></span></div>
-        </div>
-        <div class="played-slot" id="slotTop"></div>
-      </div>
+      ${sideHtml(d.topUid, "top")}
 
-      <div class="clash-zone" id="clashZone">
+      <!-- ZONE CENTRALE : le cœur du jeu, cartes en grand -->
+      <div class="battlefield" id="battlefield">
         <span class="clash-mode">${escapeHtml(GAME_MODE_LABELS[M.mode] || M.mode)}${finalScore} · Tour <span id="turnNum">1</span></span>
-        <div class="clash-cards" id="clashCards"></div>
+        <div class="battle-row">
+          <div class="battle-slot battle-slot-top" id="slotTop"></div>
+          <div class="battle-vs" id="battleVs">VS</div>
+          <div class="battle-slot battle-slot-bottom" id="slotBottom"></div>
+        </div>
+        <p class="battle-hint" id="battleHint"></p>
       </div>
 
-      <div class="board-side board-bottom">
-        <div class="played-slot" id="slotBottom"></div>
-        <div class="board-piles">
-          <div class="pile"><div class="pile-back"><img src="assets/logo.png" alt=""></div><span class="pile-count" id="deckBottom"></span></div>
-          <div class="pile pile-discard"><span class="pile-count" id="discardBottom"></span></div>
-        </div>
-        <div class="board-info">
-          <span class="board-name">${d.spect ? escapeHtml(playerName(d.bottomUid)) : "Toi"}</span>
-          <span class="board-stats" id="statsBottom"></span>
-        </div>
-        <img class="board-avatar" src="${escapeAttr(playerPhoto(d.bottomUid))}" alt="">
-      </div>
+      ${sideHtml(d.bottomUid, "bottom")}
 
       ${d.spect ? `<button type="button" class="btn btn-outline-gold" id="btnBackSpect">Retour aux matchs</button>`
                 : `<button type="button" class="btn btn-gold btn-play" id="btnPlay">Jouer ma carte</button>`}
@@ -1052,66 +1223,166 @@ function bindBoard(d) {
       if (fresh) playMyCard(fresh);
     });
   }
+  // Défausses consultables (pile face visible, cliquable).
+  for (const pos of ["top", "bottom"]) {
+    document.getElementById(`discard${pos}`)?.addEventListener("click", () => {
+      const fresh = matches.find((x) => x.id === d.match.id) || d.match;
+      const role = pos === "top" ? d.topRole : d.bottomRole;
+      openDiscardModal(fresh, role, pos === "bottom" && !d.spect);
+    });
+  }
 }
 
-function cardSlotHtml(typeId, back) {
-  if (back) return `<div class="mini-card mini-card-back"><img src="assets/logo.png" alt="Carte face cachée"></div>`;
-  if (!typeId) return `<div class="mini-card mini-card-empty"></div>`;
+/** Grande carte du centre. `state` : "back" | "card" | "empty". */
+function bigCardHtml(typeId, opts = {}) {
+  if (opts.back) {
+    return `<div class="big-card big-card-back"><img src="assets/logo.png" alt="Carte face cachée"></div>`;
+  }
+  if (!typeId) return `<div class="big-card big-card-empty"><span>—</span></div>`;
   const c = CARD_CATALOG[typeId];
+  const atk = opts.stats ? opts.stats.attack : c.attack;
+  const def = opts.stats ? opts.stats.defense : c.defense;
+  const buffed = opts.buff && (opts.buff.attack || opts.buff.defense);
+  return `
+    <div class="big-card ${opts.dead ? "is-dead" : ""} ${opts.winner ? "is-winner" : ""}">
+      <img src="${escapeAttr(c.image)}" alt="${escapeAttr(c.name)}">
+      <div class="big-card-stats ${buffed ? "buffed" : ""}">
+        <span class="bc-atk"><span class="bc-num">${atk}</span></span>
+        <span class="bc-def">${def}</span>
+      </div>
+      ${buffed ? `<span class="big-card-buff">+${opts.buff.attack}/+${opts.buff.defense}</span>` : ""}
+      ${opts.dead ? `<span class="big-card-skull">💀</span><span class="slash slash-1"></span><span class="slash slash-2"></span>` : ""}
+    </div>
+  `;
+}
+
+function miniCardHtml(typeId) {
+  const c = CARD_CATALOG[typeId];
+  if (!c) return "";
   return `<div class="mini-card"><img src="${escapeAttr(c.image)}" alt="${escapeAttr(c.name)}"><span class="mini-card-stats">${c.attack}/${c.defense}</span></div>`;
 }
 
-/** Met à jour le plateau (scores, piles, slots, clash, chi-fou-mi). */
+/** Met à jour le plateau (scores, piles, cartes du centre, clash). */
 function updateBoard(d) {
   const M = d.match.id ? (matches.find((x) => x.id === d.match.id) || d.match) : d.match;
   const data = d.spect ? spectatorBoardData(M) : participantBoardData(M);
   const m = data.match;
-  const board = document.getElementById("board");
-  if (!board) return;
+  if (!document.getElementById("board")) return;
 
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  set("statsTop", hpOrPoints(m, data.topRole) + (m.hp ? ` · ⚔️ ${m.points?.[data.topRole] ?? 0}` : ""));
-  set("statsBottom", hpOrPoints(m, data.bottomRole) + (m.hp ? ` · ⚔️ ${m.points?.[data.bottomRole] ?? 0}` : ""));
-  set("deckTop", `${m.cardsLeft?.[data.topRole] ?? "?"}`);
-  set("deckBottom", `${m.cardsLeft?.[data.bottomRole] ?? "?"}`);
-  set("discardTop", `${m.discard?.[data.topRole] ?? 0}`);
-  set("discardBottom", `${m.discard?.[data.bottomRole] ?? 0}`);
+  const html = (id, v) => { const el = document.getElementById(id); if (el) el.innerHTML = v; };
+
+  for (const [pos, role] of [["top", data.topRole], ["bottom", data.bottomRole]]) {
+    set(`stats${pos}`, hpOrPoints(m, role) + (m.hp ? ` · ⚔️ ${m.points?.[role] ?? 0}` : ""));
+    set(`deck${pos}`, `${m.cardsLeft?.[role] ?? "?"}`);
+    const pile = role === "a" ? (M.aDiscard || []) : (M.bDiscard || []);
+    set(`discardCount${pos}`, `${pile.length}`);
+    // Défausse FACE VISIBLE : on montre la carte du dessus.
+    html(`discardTop${pos}`, pile.length ? miniCardHtml(pile[0]) : `<span class="pile-empty">vide</span>`);
+  }
   set("turnNum", `${(m.turn ?? 0) + 1}`);
 
-  const slotTop = document.getElementById("slotTop");
-  const slotBottom = document.getElementById("slotBottom");
-  if (slotTop) slotTop.innerHTML = cardSlotHtml(data.topPending, data.topPendingBack);
-  if (slotBottom) slotBottom.innerHTML = cardSlotHtml(data.bottomPending, data.bottomPendingBack);
+  // ---- Zone centrale ----
+  const lc = m.lastClash;
+  const showingClash = !!lc && !data.topPendingBack && !data.bottomPendingBack && !data.bottomPending;
+  const hint = document.getElementById("battleHint");
 
-  // Dernier clash révélé
-  const clashCards = document.getElementById("clashCards");
-  if (clashCards) {
-    const lc = m.lastClash;
-    if (!lc) {
-      clashCards.innerHTML = `<span class="clash-hint">Les cartes révélées s'affichent ici</span>`;
-    } else {
-      const topCard = data.topRole === "a" ? lc.aCard : lc.bCard;
-      const botCard = data.bottomRole === "a" ? lc.aCard : lc.bCard;
-      const topDead = data.topRole === "a" ? lc.bKillsA : lc.aKillsB;
-      const botDead = data.bottomRole === "a" ? lc.bKillsA : lc.aKillsB;
-      clashCards.innerHTML = `
-        <div class="clash-card ${topDead ? "dead" : ""}">${cardSlotHtml(topCard, false)}${topDead ? '<span class="skull">💀</span>' : ""}</div>
-        <span class="clash-vs">VS</span>
-        <div class="clash-card ${botDead ? "dead" : ""}">${cardSlotHtml(botCard, false)}${botDead ? '<span class="skull">💀</span>' : ""}</div>
-      `;
+  if (showingClash) {
+    // Résultat du tour précédent : cartes révélées, morts marquées.
+    const topIsA = data.topRole === "a";
+    const topCard = topIsA ? lc.aCard : lc.bCard;
+    const botCard = topIsA ? lc.bCard : lc.aCard;
+    const topStats = topIsA ? lc.aStats : lc.bStats;
+    const botStats = topIsA ? lc.bStats : lc.aStats;
+    const topBuff = topIsA ? lc.aBuff : lc.bBuff;
+    const botBuff = topIsA ? lc.bBuff : lc.aBuff;
+    const topDead = topIsA ? lc.bKillsA : lc.aKillsB;
+    const botDead = topIsA ? lc.aKillsB : lc.bKillsA;
+    html("slotTop", bigCardHtml(topCard, { stats: topStats, buff: topBuff, dead: topDead, winner: botDead && !topDead }));
+    html("slotBottom", bigCardHtml(botCard, { stats: botStats, buff: botBuff, dead: botDead, winner: topDead && !botDead }));
+    if (hint) {
+      hint.textContent = topDead && botDead ? "Double élimination !"
+        : topDead ? "Ta carte l'emporte !"
+        : botDead ? "Ta carte est éliminée…"
+        : "Aucune des deux ne cède.";
+    }
+    triggerClashAnimation(m, topDead, botDead);
+  } else {
+    html("slotTop", bigCardHtml(null, { back: data.topPendingBack }));
+    html("slotBottom", data.bottomPending
+      ? bigCardHtml(data.bottomPending)
+      : bigCardHtml(null, { back: data.bottomPendingBack }));
+    if (hint) {
+      hint.textContent = m.status !== "playing" ? ""
+        : data.canPlay ? "Joue la carte du dessus de ton deck."
+        : data.topPendingBack ? "Les deux cartes sont posées… révélation !"
+        : "En attente de l'adversaire…";
     }
   }
 
-  // Bouton jouer
+  // Choix d'effet en cours chez l'adversaire
+  if (m.pendingChoice && m.pendingChoice.side !== data.myRole && hint) {
+    hint.textContent = "L'adversaire résout un effet de carte…";
+  }
+
   const btnPlay = document.getElementById("btnPlay");
   if (btnPlay) {
     btnPlay.disabled = !data.canPlay;
     btnPlay.textContent = m.status !== "playing" ? "…"
-      : data.canPlay ? "Jouer ma carte" : "En attente de l'adversaire…";
+      : data.canPlay ? "Jouer ma carte" : "Carte posée !";
   }
 
-  // Chi-fou-mi
   updateRpsOverlay(m, data);
+}
+
+/** Relance l'animation de clash une seule fois par tour. */
+let lastAnimatedTurn = null;
+function triggerClashAnimation(m, topDead, botDead) {
+  const animKey = `${m.id}:${m.turn}`;
+  if (lastAnimatedTurn === animKey) return;
+  lastAnimatedTurn = animKey;
+  const field = document.getElementById("battlefield");
+  const vs = document.getElementById("battleVs");
+  if (!field) return;
+  field.classList.remove("clash-anim");
+  void field.offsetWidth; // force le redémarrage de l'animation
+  field.classList.add("clash-anim");
+  if (vs) {
+    vs.classList.remove("vs-hit");
+    void vs.offsetWidth;
+    vs.classList.add("vs-hit");
+  }
+  if (topDead || botDead) {
+    field.classList.remove("shake");
+    void field.offsetWidth;
+    field.classList.add("shake");
+  }
+}
+
+// ---- Défausse consultable ----
+function openDiscardModal(m, role, isMine) {
+  const pile = role === "a" ? (m.aDiscard || []) : (m.bDiscard || []);
+  const owner = isMine ? "Ta défausse" : `Défausse de ${playerName(m[role])}`;
+  let overlay = document.getElementById("discardOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.className = "choice-overlay";
+    overlay.id = "discardOverlay";
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `
+    <div class="choice-box discard-box">
+      <h3>${escapeHtml(owner)} — ${pile.length} carte${pile.length > 1 ? "s" : ""}</h3>
+      <p class="choice-help">${pile.length ? "De la plus récemment défaussée à la plus ancienne." : "Aucune carte défaussée pour l'instant."}</p>
+      <div class="discard-grid">
+        ${pile.map((id) => miniCardHtml(id)).join("")}
+      </div>
+      <button type="button" class="btn btn-gold" id="btnCloseDiscard">Fermer</button>
+    </div>
+  `;
+  const close = () => overlay.remove();
+  document.getElementById("btnCloseDiscard").addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
 }
 
 function updateRpsOverlay(m, data) {
@@ -1220,6 +1491,7 @@ function renderChampion() {
   gameStage.innerHTML = `
     <h2 class="stage-title">🏆 ${escapeHtml(playerName(champ))} est couronné champion !</h2>
     ${t?.finalScore ? `<p class="stage-sub">Finale : ${Object.entries(t.finalScore).map(([u, s]) => `${escapeHtml(playerName(u))} ${s}`).join(" — ")}</p>` : ""}
+    <div id="rewardPanel"></div>
     <div id="standingsPanel"></div>
     <div class="order-actions"><button type="button" class="btn btn-gold" id="btnBackLobby">Retour au lobby</button></div>
   `;
@@ -1228,6 +1500,56 @@ function renderChampion() {
     try { await leaveRoom(roomCode, myUid()); } catch (e) {}
     goToLobby();
   });
+  claimMyRewards();
+}
+
+// ---- Récompenses de fin de tournoi (pièces + XP) ----
+let rewardsClaimed = false;
+async function claimMyRewards() {
+  if (rewardsClaimed) return;
+  const t = tournament();
+  if (!t || !currentUser) return;
+  rewardsClaimed = true;
+
+  // Niveaux au moment de la partie : mémorisés au lancement du tournoi
+  // (le niveau d'un joueur peut changer entre-temps).
+  const levels = room.tournamentLevels || {};
+  const rewards = computeRewards(t, levels);
+  const mine = rewards[myUid()];
+  if (!mine) return;
+
+  const panel = document.getElementById("rewardPanel");
+  const rankLabel = ["1er", "2e", "3e", "4e"][mine.rank - 1] || `${mine.rank}e`;
+  if (panel) {
+    panel.innerHTML = `
+      <div class="reward-box">
+        <span class="reward-rank">${escapeHtml(rankLabel)}</span>
+        <div class="reward-gains">
+          <span class="reward-coin">+${mine.coins} 🪙</span>
+          <span class="reward-xp">+${mine.xp} XP</span>
+        </div>
+        <p class="reward-detail">Niveaux cumulés des adversaires : ${mine.opponentLevels}</p>
+        <p class="reward-status" id="rewardStatus">Attribution…</p>
+      </div>
+    `;
+  }
+  try {
+    const res = await grantRewards(`room-${roomCode}`, mine.coins, mine.xp);
+    const status = document.getElementById("rewardStatus");
+    if (!status) return;
+    if (res.alreadyClaimed) {
+      status.textContent = "Récompenses déjà reçues pour cette partie.";
+    } else if (res.levelsGained > 0) {
+      status.innerHTML = `🎉 Niveau ${res.level} atteint !`;
+      status.classList.add("levelup");
+    } else {
+      status.textContent = `Niveau ${res.level} — ${res.exp} XP`;
+    }
+  } catch (err) {
+    console.error("Attribution des récompenses impossible :", err);
+    const status = document.getElementById("rewardStatus");
+    if (status) status.textContent = "Récompenses indisponibles pour le moment.";
+  }
 }
 
 // ---- Classement (couronnes, kills, statuts) ----
@@ -1316,6 +1638,9 @@ async function hostMaybeInitTournament() {
     const uids = players.map((p) => p.uid);
     const names = Object.fromEntries(players.map((p) => [p.uid, p.displayName || "Joueur"]));
     const photos = Object.fromEntries(players.map((p) => [p.uid, p.photoURL || ""]));
+    // Niveaux figés au lancement : ils servent au calcul des gains de
+    // fin de tournoi (barème « niveaux cumulés des adversaires »).
+    const levels = Object.fromEntries(players.map((p) => [p.uid, Number(p.level) || 1]));
     let t = createTournament(uids);
     const pairing = pairNextRound(t, seededRng(`r1`));
     const matchIds = await hostCreateRoundMatches(pairing);
@@ -1327,6 +1652,7 @@ async function hostMaybeInitTournament() {
       roundByeUid: pairing.t.roundByeUid ?? null,
       tournamentNames: names,
       tournamentPhotos: photos,
+      tournamentLevels: levels,
       phaseEndsAt: null
     });
   } catch (err) {
@@ -1388,7 +1714,12 @@ async function hostCreateRoundMatches(pairing) {
       points: { a: 0, b: 0 },
       hp: hp === null ? null : { a: hp, b: hp },
       cardsLeft: { a: 10, b: 10 },
+      // Défausses : de VRAIES piles de cartes (index 0 = dessus), pour
+      // pouvoir les consulter en jeu. `discard` garde les compteurs.
+      aDiscard: [], bDiscard: [],
       discard: { a: 0, b: 0 },
+      // Réponses aux effets interactifs, rangées par clé d'étape.
+      fxAnswers: {}, pendingChoice: null,
       lastClash: null, rps: null, rpsLastResult: null,
       winner: null, endReason: null, forfeitedUid: null
     });

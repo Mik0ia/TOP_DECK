@@ -65,18 +65,67 @@ export function subscribeAuth(callback) {
 // -----------------------------------------------------------------
 // Système d'expérience / niveau
 // -----------------------------------------------------------------
-/** XP nécessaire pour passer du niveau `level` au niveau `level + 1`. */
-export function xpForLevel(level) {
-  const lvl = Number.isFinite(level) && level > 0 ? Math.trunc(level) : 1;
-  return lvl * 10;
-}
+// La courbe d'XP vit dans le moteur pur (js/engine/rewards.js) pour
+// être testable hors navigateur ; on la réexporte ici pour que le code
+// existant (js/main.js) continue d'importer depuis auth.js.
+export { xpForLevel, xpProgressPercent } from "./engine/rewards.js";
+import { xpForLevel as xpNeeded, applyXp } from "./engine/rewards.js";
 
-/** Pourcentage de remplissage (0-100) de la barre d'XP courante. */
-export function xpProgressPercent(level, exp) {
-  const needed = xpForLevel(level);
-  const current = Number.isFinite(exp) ? Math.max(0, exp) : 0;
-  if (needed <= 0) return 0;
-  return Math.max(0, Math.min(100, (current / needed) * 100));
+/**
+ * Verse les récompenses de fin de tournoi (pièces + XP) au joueur
+ * courant, en une seule transaction.
+ *
+ * `rewardKey` identifie la partie (ex : "room-ABC123") et est mémorisé
+ * dans le profil : si le joueur recharge la page d'un tournoi terminé,
+ * il ne touche pas ses gains une deuxième fois.
+ *
+ * @returns {{coins, xp, level, exp, levelsGained, alreadyClaimed}}
+ */
+export async function grantRewards(rewardKey, coins, xp) {
+  if (!authState.user) throw new Error("Non connecté.");
+  const gainedCoins = Math.max(0, Math.trunc(Number(coins) || 0));
+  const gainedXp = Math.max(0, Math.trunc(Number(xp) || 0));
+  const ref = doc(db, "users", authState.user.uid);
+
+  const result = await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new Error("Profil introuvable.");
+    const data = snap.data();
+    const claimed = Array.isArray(data.claimedRewards) ? data.claimedRewards : [];
+    if (rewardKey && claimed.includes(rewardKey)) {
+      return {
+        alreadyClaimed: true,
+        coins: 0, xp: 0, levelsGained: 0,
+        pieces: Number.isFinite(data.pieces) ? data.pieces : 0,
+        level: Number.isFinite(data.level) ? data.level : 1,
+        exp: Number.isFinite(data.exp) ? data.exp : 0
+      };
+    }
+    const next = applyXp(data.level, data.exp, gainedXp, xpNeeded);
+    const pieces = (Number.isFinite(data.pieces) ? data.pieces : 0) + gainedCoins;
+    // On ne garde que les 20 dernières parties récompensées : suffisant
+    // pour empêcher un double versement, sans faire grossir le profil.
+    const newClaimed = rewardKey ? [...claimed, rewardKey].slice(-20) : claimed;
+    tx.update(ref, {
+      pieces,
+      level: next.level,
+      exp: next.exp,
+      claimedRewards: newClaimed
+    });
+    return {
+      alreadyClaimed: false,
+      coins: gainedCoins, xp: gainedXp,
+      levelsGained: next.levelsGained,
+      pieces, level: next.level, exp: next.exp
+    };
+  });
+
+  authState.profile = {
+    ...authState.profile,
+    pieces: result.pieces, level: result.level, exp: result.exp
+  };
+  notify();
+  return result;
 }
 
 // -----------------------------------------------------------------
